@@ -1,0 +1,39 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "zyria-costs",
+	"main": "src/worker.js",
+	"compatibility_date": "2026-09-01",
+	// Only reachable on costs.zyria.ng, which sits behind Cloudflare Access.
+	// The *.workers.dev and preview URLs are switched off so nothing bypasses the sign-in.
+	"workers_dev": false,
+	"preview_urls": false,
+	"routes": [
+		{
+			"pattern": "costs.zyria.ng",
+			"custom_domain": true
+		}
+	],
+	// The Worker runs before any file is served, so the sign-in check covers the page too.
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "zyria-costs",
+			"database_id": "fe62b8be-ffe8-4d3b-bd28-36616fe72bc4",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		// From Zero Trust → Settings → Custom pages (team domain), e.g. "zyria.cloudflareaccess.com".
+		"ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM_DOMAIN",
+		// From Zero Trust → Access → Applications → this app → Overview → "Application Audience (AUD) Tag".
+		"ACCESS_AUD": "REPLACE_WITH_AUD_TAG"
+	},
+	"observability": {
+		"enabled": true
+	}
+}

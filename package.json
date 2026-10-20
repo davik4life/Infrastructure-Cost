@@ -1,0 +1,16 @@
+{
+  "name": "zyria-costs",
+  "private": true,
+  "type": "module",
+  "description": "Zyria infrastructure cost register on Cloudflare Workers + D1, behind Cloudflare Access",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply zyria-costs --local",
+    "db:migrate": "wrangler d1 migrations apply zyria-costs --remote",
+    "deploy": "wrangler deploy",
+    "test": "node test/auth-and-api.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.2"
+  }
+}

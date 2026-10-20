@@ -1,0 +1,5 @@
+# Local development only. Never deployed.
+# The empty Access values switch the sign-in check off for requests from this computer only.
+LOCAL_DEV_EMAIL=you@example.com
+ACCESS_TEAM_DOMAIN=
+ACCESS_AUD=

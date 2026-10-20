@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="referrer" content="no-referrer">
+<title>Zyria Infrastructure Costs</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Zyria.ng · Infrastructure</div>
+      <h1>Cost register</h1>
+      <div class="sub">Record what each service actually billed, month by month. Totals are shown in naira.</div>
+    </div>
+    <div class="controls">
+      <label class="inline" for="yearSel">Year <select id="yearSel"></select></label>
+      <label class="inline" for="fxInput">₦ per $1 <input id="fxInput" class="mono" type="number" min="1" step="0.01"></label>
+      <button id="recordBtn" class="primary">Record a month</button>
+    </div>
+  </header>
+  <div class="who"><span id="whoami">Signing in…</span><a href="/cdn-cgi/access/logout">Sign out</a></div>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <section class="kpis" aria-label="Summary">
+    <div class="kpi"><span class="eyebrow" id="kTotalLbl">Total spent</span><span class="v" id="kTotal">₦0</span><span class="s" id="kTotalSub">–</span></div>
+    <div class="kpi"><span class="eyebrow">Average per recorded month</span><span class="v" id="kAvg">₦0</span><span class="s" id="kAvgSub">–</span></div>
+    <div class="kpi"><span class="eyebrow">Planned monthly run-rate</span><span class="v" id="kRun">₦0</span><span class="s" id="kRunSub">from active services</span></div>
+    <div class="kpi"><span class="eyebrow">Planned yearly</span><span class="v" id="kYear">₦0</span><span class="s">run-rate × 12</span></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <div class="panel-head"><h2>Spend by month</h2><span class="sub" id="chartSub"></span></div>
+      <svg id="chart" viewBox="0 0 640 230" role="img" aria-label="Monthly spend chart" class="chart"></svg>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>By category</h2><span class="sub" id="catSub"></span></div>
+      <ul class="cat-list" id="catList"></ul>
+    </section>
+  </div>
+
+  <section class="stack">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-ledger" aria-selected="true" data-tab="ledger">Ledger</button>
+      <button class="tab" role="tab" id="tab-services" aria-selected="false" data-tab="services">Services</button>
+      <button class="tab" role="tab" id="tab-activity" aria-selected="false" data-tab="activity">Activity</button>
+    </div>
+
+    <div id="view-ledger" class="stack">
+      <div class="toolbar">
+        <span class="sub" id="ledgerSub"></span>
+        <div class="controls">
+          <button id="exportBtn">Export CSV</button>
+          <button id="addEntryBtn" class="primary">Add entry</button>
+        </div>
+      </div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Paid on</th><th>Service</th><th>Note</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">In naira</th><th></th></tr></thead>
+        <tbody id="ledgerBody"></tbody>
+      </table></div>
+    </div>
+
+    <div id="view-services" class="stack" hidden>
+      <div class="toolbar">
+        <span class="sub">Planned cost is what you expect to pay. Usage-billed services vary, so record the real bill each month.</span>
+        <button id="addSvcBtn" class="primary">Add service</button>
+      </div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Service</th><th>Used for</th><th>Plan</th><th>Billing</th><th class="num">Planned</th><th class="num">≈ ₦ / month</th><th>Next step up</th><th></th></tr></thead>
+        <tbody id="svcBody"></tbody>
+      </table></div>
+    </div>
+
+    <div id="view-activity" class="stack" hidden>
+      <span class="sub">The last 100 changes, with who made them.</span>
+      <div class="tablewrap"><table class="audit">
+        <thead><tr><th>When (WAT)</th><th>Who</th><th>What</th><th>Details</th></tr></thead>
+        <tbody id="auditBody"></tbody>
+      </table></div>
+    </div>
+  </section>
+</div>
+
+<dialog id="entryDlg"><form class="dlg" id="entryForm" method="dialog">
+  <h2 id="entryTitle">Add entry</h2>
+  <div class="form-grid">
+    <label class="field full"><span>Service</span><select id="eSvc" required></select></label>
+    <label class="field"><span>Month</span><input id="eMonth" type="month" required></label>
+    <label class="field"><span>Paid on (optional)</span><input id="ePaid" type="date"></label>
+    <label class="field"><span>Amount</span><input id="eAmt" class="mono" type="number" step="0.01" min="0" required></label>
+    <label class="field"><span>Currency</span><select id="eCur"><option>USD</option><option>NGN</option></select></label>
+    <label class="field"><span>₦ per $1 on the bill</span><input id="eFx" class="mono" type="number" step="0.01" min="1"></label>
+    <label class="field"><span>In naira</span><input id="eNgn" class="mono" type="text" readonly tabindex="-1"></label>
+    <label class="field full"><span>Note</span><input id="eNote" type="text" maxlength="300" placeholder="Invoice number, overage, anything worth remembering"></label>
+  </div>
+  <p class="sub err" id="entryErr" hidden></p>
+  <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save entry</button></div>
+</form></dialog>
+
+<dialog id="svcDlg"><form class="dlg" id="svcForm" method="dialog">
+  <h2 id="svcTitle">Add service</h2>
+  <div class="form-grid">
+    <label class="field"><span>Service name</span><input id="sName" maxlength="120" required></label>
+    <label class="field"><span>Category</span><select id="sCat"></select></label>
+    <label class="field full"><span>Used for</span><input id="sUse" maxlength="300"></label>
+    <label class="field"><span>Current plan</span><input id="sPlan" maxlength="120"></label>
+    <label class="field"><span>Billing</span><select id="sBill"><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option><option value="USAGE">Usage-based</option><option value="FREE">Free</option></select></label>
+    <label class="field"><span>Planned cost per billing period</span><input id="sPrice" class="mono" type="number" step="0.01" min="0"></label>
+    <label class="field"><span>Currency</span><select id="sCur"><option>USD</option><option>NGN</option></select></label>
+    <label class="field"><span>Renews on (yearly)</span><input id="sRenew" type="date"></label>
+    <label class="field"><span>Status</span><select id="sStatus"><option value="ACTIVE">Active</option><option value="CANCELLED">Cancelled</option></select></label>
+    <label class="field full"><span>Next step up</span><input id="sNext" maxlength="300" placeholder="The plan you'd move to and what triggers it"></label>
+    <label class="field full"><span>Notes</span><input id="sNotes" maxlength="500"></label>
+  </div>
+  <p class="sub err" id="svcErr" hidden></p>
+  <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save service</button></div>
+</form></dialog>
+
+<dialog id="recDlg"><form class="dlg" id="recForm" method="dialog">
+  <h2>Record a month</h2>
+  <p class="sub flush">Pre-filled with each active service's planned cost. Change any amount to match the real bill. Rows left blank are skipped, and services already recorded for that month are marked.</p>
+  <div class="form-grid">
+    <label class="field"><span>Month</span><input id="rMonth" type="month" required></label>
+    <label class="field"><span>₦ per $1 for this month</span><input id="rFx" class="mono" type="number" step="0.01" min="1"></label>
+  </div>
+  <div class="rec-list" id="recList"></div>
+  <p class="sub err" id="recErr" hidden></p>
+  <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save month</button></div>
+</form></dialog>
+</body>
+</html>
