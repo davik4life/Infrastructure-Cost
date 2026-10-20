@@ -80,6 +80,8 @@ await t('naira is worked out in whole kobo', async () => {
   assert.ok(parseEntry({ serviceId: 's', period: '2026-10', amount: -1, currency: 'NGN' }).error);
   assert.ok(parseEntry({ serviceId: 's', period: '2026-10', amount: 1, currency: 'USD' }).error, 'USD bills need a rate');
   assert.equal(parseService({ name: 'X', billing: 'FREE', price: 99 }).priceMinor, 0);
+  assert.equal(parseService({ name: 'X', billing: 'YEARLY', price: 15600 }).spreadMonthly, 1, 'yearly costs spread monthly by default');
+  assert.equal(parseService({ name: 'X', billing: 'YEARLY', price: 15600, spreadMonthly: false }).spreadMonthly, 0);
 });
 
 await t('priority, status and payment links are checked', async () => {

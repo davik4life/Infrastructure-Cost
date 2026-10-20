@@ -182,8 +182,8 @@ async function api(request, env, url, email) {
       if (s.error) return json({ error: s.error }, 400);
       const id = crypto.randomUUID();
       await env.DB.batch([
-        env.DB.prepare('INSERT INTO services (id, name, category, used_for, plan, billing, price_minor, currency, renews_on, status, next_tier, notes, priority, payment_url) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-          .bind(id, s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, s.priority, s.paymentUrl),
+        env.DB.prepare('INSERT INTO services (id, name, category, used_for, plan, billing, price_minor, currency, renews_on, status, next_tier, notes, priority, payment_url, spread_monthly) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, s.priority, s.paymentUrl, s.spreadMonthly),
         audit(env, email, 'SERVICE_CREATED', id, s.name),
       ]);
       return json({ ok: true, id }, 201);
@@ -202,8 +202,8 @@ async function api(request, env, url, email) {
       const s = parseService(body);
       if (s.error) return json({ error: s.error }, 400);
       await env.DB.batch([
-        env.DB.prepare("UPDATE services SET name=?, category=?, used_for=?, plan=?, billing=?, price_minor=?, currency=?, renews_on=?, status=?, next_tier=?, notes=?, priority=?, payment_url=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
-          .bind(s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, s.priority, s.paymentUrl, id),
+        env.DB.prepare("UPDATE services SET name=?, category=?, used_for=?, plan=?, billing=?, price_minor=?, currency=?, renews_on=?, status=?, next_tier=?, notes=?, priority=?, payment_url=?, spread_monthly=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
+          .bind(s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, s.priority, s.paymentUrl, s.spreadMonthly, id),
         audit(env, email, 'SERVICE_UPDATED', id, s.name),
       ]);
       return json({ ok: true });
@@ -276,7 +276,7 @@ async function loadState(env, email) {
     services: services.results.map((s) => ({
       id: s.id, name: s.name, category: s.category, usedFor: s.used_for, plan: s.plan, billing: s.billing,
       price: s.price_minor / 100, currency: s.currency, renewsOn: s.renews_on || '', status: s.status, nextTier: s.next_tier, notes: s.notes,
-      priority: s.priority, paymentUrl: s.payment_url,
+      priority: s.priority, paymentUrl: s.payment_url, spreadMonthly: s.spread_monthly !== 0,
     })),
     entries: entries.results.map((e) => ({
       id: e.id, serviceId: e.service_id, period: e.period, amount: e.amount_minor / 100, currency: e.currency,
@@ -422,6 +422,8 @@ export function parseService(b) {
   if (link === null) return { error: 'The payment link must be a full web address starting with https://' };
   return {
     name, billing, currency, priceMinor, status, priority: prio, paymentUrl: link,
+    // Spread over the months unless explicitly switched off.
+    spreadMonthly: b.spreadMonthly === false || b.spreadMonthly === 0 || b.spreadMonthly === 'false' ? 0 : 1,
     category: CATEGORIES.includes(b.category) ? b.category : 'Other',
     usedFor: text(b.usedFor, 300), plan: text(b.plan, 120), nextTier: text(b.nextTier, 300), notes: text(b.notes, 500),
     renewsOn: date(b.renewsOn),

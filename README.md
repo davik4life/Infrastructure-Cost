@@ -127,6 +127,9 @@ npm run db:migrate
 npm run deploy
 ```
 
+**Upgrading to the yearly "spread monthly" switch** (migration `0004`): `npm run db:migrate`, then
+`npm run deploy`. Every yearly service keeps being spread monthly until you switch it.
+
 **Upgrading to the "count in totals" switch** (migration `0003`): `npm run db:migrate`, then
 `npm run deploy`. Every existing bill stays counted.
 
@@ -153,6 +156,12 @@ Shipbubble. Medium: Sentry, GitHub, OpenAI. Low: this app). Change any of them i
   screenshots", or paste straight from the clipboard while the form is open. PNG, JPEG, WebP or
   GIF, up to 5 MB each and 10 per item. They upload when you save. Deleting a bill or service
   deletes its screenshots too.
+- **Yearly payments, monthly or not**: a yearly service (like the domain) is normally spread over 12
+  months in "Planned monthly run-rate" (₦15,600 a year shows as ₦1,300 a month). For a
+  once-a-year payment, use **Don't spread** under its "≈ ₦ / month" figure on the Services tab, or
+  untick "Spread this yearly cost over 12 months" in its form. It then shows as *once a year*,
+  is left out of the monthly run-rate, and is added to "Planned yearly" as a single payment.
+  Bills you record for it still count in the ledger totals as usual.
 - **Counted or not**: a bill can be left out of the totals (a one-off, a refund, a duplicate, a
   test) while staying in the ledger. Use **Don't count** on its row, or untick "Count this bill in
   the totals" in its form. It then shows greyed out and crossed through, marked *Not counted*, and

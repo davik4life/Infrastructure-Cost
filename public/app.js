@@ -95,7 +95,11 @@
     } catch (e) { $('auditBody').innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`; }
   }
 
+  // A yearly service switched to "once a year" stays out of the monthly figures entirely.
+  const notSpread = (s) => s.billing === 'YEARLY' && s.spreadMonthly === false;
+  const yearlyOnce = (s) => (s.status === 'ACTIVE' && notSpread(s) ? toNgn(Number(s.price) || 0, s.currency) : 0);
   function monthlyEquiv(s) {
+    if (notSpread(s)) return 0;
     if (s.status !== 'ACTIVE' || s.billing === 'FREE') return 0;
     const p = Number(s.price) || 0;
     return toNgn(s.billing === 'YEARLY' ? p / 12 : p, s.currency);
@@ -147,7 +151,11 @@
     $('kRun').textContent = ngn(run);
     const usage = state.services.filter((s) => s.status === 'ACTIVE' && s.billing === 'USAGE').length;
     $('kRunSub').textContent = usage ? 'plus ' + plural(usage, 'usage-billed service', 'usage-billed services') : 'from active services';
-    $('kYear').textContent = ngn(run * 12);
+    const once = state.services.reduce((a, s) => a + yearlyOnce(s), 0);
+    const onceCount = state.services.filter((s) => s.status === 'ACTIVE' && notSpread(s)).length;
+    $('kYear').textContent = ngn(run * 12 + once);
+    $('kYearSub').textContent = once ? `run-rate × 12 + ${ngn(once)} paid once a year` : 'run-rate × 12';
+    if (onceCount) $('kRunSub').textContent += `${$('kRunSub').textContent.startsWith('plus') ? ',' : ';'} ${plural(onceCount, 'yearly payment', 'yearly payments')} not spread`;
 
     // Due to pay: every unpaid bill, any year, most urgent first.
     const due = state.entries.filter((e) => e.status === 'DUE' && e.counted !== false).sort((a, b) => prioRank(a.priority) - prioRank(b.priority) || a.period.localeCompare(b.period));
@@ -203,7 +211,7 @@
     const svcs = [...state.services].sort((a, b) => (a.status === b.status ? 0 : a.status === 'ACTIVE' ? -1 : 1) || prioRank(a.priority) - prioRank(b.priority) || CATS.indexOf(a.category) - CATS.indexOf(b.category) || a.name.localeCompare(b.name));
     $('svcBody').innerHTML = svcs.length ? svcs.map((s) => {
       const cls = s.status !== 'ACTIVE' ? 'off' : s.billing === 'USAGE' ? 'usage' : '';
-      return `<tr><td><strong>${esc(s.name)}</strong><div class="sub">${esc(s.category)}</div></td><td>${prioPill(s.priority)}</td><td>${esc(s.usedFor)}${s.notes ? `<div class="sub">${esc(s.notes)}</div>` : ''}</td><td>${esc(s.plan)}</td><td><span class="pill ${cls}">${s.status !== 'ACTIVE' ? 'Cancelled' : BILL_LABEL[s.billing]}</span>${s.renewsOn ? `<div class="sub">renews ${esc(s.renewsOn)}</div>` : ''}</td><td class="num">${s.billing === 'FREE' || !s.price ? '–' : money(s.price, s.currency)}</td><td class="num">${ngn(monthlyEquiv(s))}</td><td class="sub">${esc(s.nextTier)}</td><td>${filesCell('service', s, s.paymentUrl, s.name)}</td><td class="nowrap"><button class="ghost" data-edit-svc="${esc(s.id)}">Edit</button><button class="ghost" data-del-svc="${esc(s.id)}">Delete</button></td></tr>`;
+      return `<tr><td><strong>${esc(s.name)}</strong><div class="sub">${esc(s.category)}</div></td><td>${prioPill(s.priority)}</td><td>${esc(s.usedFor)}${s.notes ? `<div class="sub">${esc(s.notes)}</div>` : ''}</td><td>${esc(s.plan)}</td><td><span class="pill ${cls}">${s.status !== 'ACTIVE' ? 'Cancelled' : BILL_LABEL[s.billing]}</span>${s.renewsOn ? `<div class="sub">renews ${esc(s.renewsOn)}</div>` : ''}</td><td class="num">${s.billing === 'FREE' || !s.price ? '–' : money(s.price, s.currency)}</td><td class="num">${notSpread(s) ? '–<div class="sub">once a year</div>' : ngn(monthlyEquiv(s))}${s.billing === 'YEARLY' && s.status === 'ACTIVE' ? `<div><button class="linkish" data-spread="${esc(s.id)}">${notSpread(s) ? 'Spread monthly' : "Don't spread"}</button></div>` : ''}</td><td class="sub">${esc(s.nextTier)}</td><td>${filesCell('service', s, s.paymentUrl, s.name)}</td><td class="nowrap"><button class="ghost" data-edit-svc="${esc(s.id)}">Edit</button><button class="ghost" data-del-svc="${esc(s.id)}">Delete</button></td></tr>`;
     }).join('') : `<tr><td colspan="10" class="empty">${state.ready ? 'No services yet. Add the first one.' : 'Loading services…'}</td></tr>`;
   }
 
@@ -312,7 +320,16 @@
   const svcOptions = (sel) => [...state.services].sort((a, b) => a.name.localeCompare(b.name)).map((s) => `<option value="${esc(s.id)}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}${s.status !== 'ACTIVE' ? ' (cancelled)' : ''}</option>`).join('');
   function updNgn() { $('eNgn').value = ngnExact(toNgn(numOf($('eAmt')), $('eCur').value, numOf($('eFx')))); $('eFx').disabled = $('eCur').value !== 'USD'; $('eAmtSym').textContent = sym($('eCur').value); }
   ['eAmt', 'eCur', 'eFx'].forEach((id) => $(id).addEventListener('input', updNgn));
-  $('sCur').addEventListener('change', () => { $('sPriceSym').textContent = sym($('sCur').value); });
+  $('sCur').addEventListener('change', () => { $('sPriceSym').textContent = sym($('sCur').value); syncSpread(); });
+  // The "spread over 12 months" choice only applies to yearly services.
+  function syncSpread() {
+    const yearly = $('sBill').value === 'YEARLY';
+    $('sSpreadField').hidden = !yearly;
+    const p = Number(numOf($('sPrice'))) || 0;
+    $('sSpreadHint').textContent = yearly && p ? `(${money(p / 12, $('sCur').value)} a month in the run-rate)` : '';
+  }
+  $('sBill').addEventListener('change', syncSpread);
+  $('sPrice').addEventListener('input', syncSpread);
   $('eSvc').addEventListener('change', () => {
     if (editingEntry) return;
     const s = svcById($('eSvc').value);
@@ -350,13 +367,14 @@
     $('sName').value = s?.name || ''; $('sCat').value = s?.category || 'Other'; $('sUse').value = s?.usedFor || ''; $('sPlan').value = s?.plan || '';
     $('sBill').value = s?.billing || 'MONTHLY'; setMoney($('sPrice'), s?.price ?? ''); $('sCur').value = s?.currency || 'USD'; $('sRenew').value = s?.renewsOn || '';
     $('sStatus').value = s?.status || 'ACTIVE'; $('sNext').value = s?.nextTier || ''; $('sNotes').value = s?.notes || '';
+    $('sSpread').checked = s ? s.spreadMonthly !== false : true; syncSpread();
     $('sPrio').value = s?.priority || 'MEDIUM'; $('sLink').value = s?.paymentUrl || '';
     $('sPriceSym').textContent = sym($('sCur').value);
     drawThumbs('s'); $('svcDlg').showModal();
   }
   $('svcForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const body = { name: $('sName').value, category: $('sCat').value, usedFor: $('sUse').value, plan: $('sPlan').value, billing: $('sBill').value, price: numOf($('sPrice')) || 0, currency: $('sCur').value, renewsOn: $('sRenew').value, status: $('sStatus').value, nextTier: $('sNext').value, notes: $('sNotes').value, priority: $('sPrio').value, paymentUrl: $('sLink').value };
+    const body = { name: $('sName').value, category: $('sCat').value, usedFor: $('sUse').value, plan: $('sPlan').value, billing: $('sBill').value, price: numOf($('sPrice')) || 0, currency: $('sCur').value, renewsOn: $('sRenew').value, status: $('sStatus').value, nextTier: $('sNext').value, notes: $('sNotes').value, priority: $('sPrio').value, paymentUrl: $('sLink').value, spreadMonthly: $('sSpread').checked };
     let id = editingSvc?.id;
     try {
       if (editingSvc) await call('PUT', '/api/services/' + encodeURIComponent(id), body);
@@ -390,6 +408,15 @@
     } catch (e) { showErr('recErr', e.message); }
   });
 
+  async function toggleSpread(id) {
+    const s = svcById(id);
+    if (!s) return;
+    const next = s.spreadMonthly === false;
+    try {
+      await call('PUT', '/api/services/' + encodeURIComponent(id), { ...s, spreadMonthly: next });
+      toast(next ? `${s.name} spread over 12 months again` : `${s.name} left out of the monthly run-rate`); load();
+    } catch (err) { toast(err.message); }
+  }
   async function toggleCounted(id) {
     const e = state.entries.find((x) => x.id === id);
     if (!e) return;
@@ -427,6 +454,7 @@
     if (b.dataset.unsave) { const [pre, id] = b.dataset.unsave.split(':'); removed[pre].push(id); drawThumbs(pre); return; }
     if (b.dataset.markPaid) return markPaid(b.dataset.markPaid);
     if (b.dataset.count) return toggleCounted(b.dataset.count);
+    if (b.dataset.spread) return toggleSpread(b.dataset.spread);
     if (b.dataset.editEntry) return openEntry(state.entries.find((e) => e.id === b.dataset.editEntry));
     if (b.dataset.editSvc) return openSvc(svcById(b.dataset.editSvc));
     const del = b.dataset.delEntry ? ['entries', b.dataset.delEntry] : b.dataset.delSvc ? ['services', b.dataset.delSvc] : null;

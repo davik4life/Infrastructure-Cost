@@ -33,7 +33,7 @@
     <div class="kpi"><span class="eyebrow" id="kTotalLbl">Total costs</span><span class="v" id="kTotal">₦0</span><span class="s" id="kTotalSub">–</span></div>
     <div class="kpi"><span class="eyebrow">Average per recorded month</span><span class="v" id="kAvg">₦0</span><span class="s" id="kAvgSub">–</span></div>
     <div class="kpi"><span class="eyebrow">Planned monthly run-rate</span><span class="v" id="kRun">₦0</span><span class="s" id="kRunSub">from active services</span></div>
-    <div class="kpi"><span class="eyebrow">Planned yearly</span><span class="v" id="kYear">₦0</span><span class="s">run-rate × 12</span></div>
+    <div class="kpi"><span class="eyebrow">Planned yearly</span><span class="v" id="kYear">₦0</span><span class="s" id="kYearSub">run-rate × 12</span></div>
   </section>
 
   <section class="panel due-panel" id="duePanel" hidden>
@@ -133,6 +133,7 @@
     <label class="field"><span>Planned cost per billing period</span><span class="money-field"><span class="cur" id="sPriceSym">$</span><input id="sPrice" class="mono money" type="text" inputmode="decimal" autocomplete="off"></span></label>
     <label class="field"><span>Currency</span><select id="sCur"><option>USD</option><option>NGN</option></select></label>
     <label class="field"><span>Renews on (yearly)</span><input id="sRenew" type="date"></label>
+    <label class="field full check" id="sSpreadField"><input id="sSpread" type="checkbox" checked><span>Spread this yearly cost over 12 months in the monthly run-rate <span class="sub" id="sSpreadHint"></span><br><span class="sub">Untick for a once-a-year payment like the domain: it then counts in "Planned yearly" only, not as a monthly cost.</span></span></label>
     <label class="field"><span>Status</span><select id="sStatus"><option value="ACTIVE">Active</option><option value="CANCELLED">Cancelled</option></select></label>
     <label class="field"><span>Priority</span><select id="sPrio"><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
     <label class="field full"><span>Billing or payment page</span><input id="sLink" type="url" maxlength="500" placeholder="https://… where you view the plan or pay"></label>
