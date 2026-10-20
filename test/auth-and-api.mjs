@@ -1,7 +1,7 @@
 // Sign-in checks for the Worker, run in Node with a fake Cloudflare Access key server.
 // No Cloudflare account or database needed: `npm test`.
 import assert from 'node:assert/strict';
-import worker, { parseEntry, parseService, configProblem, sniffImage, paymentUrl } from '../src/worker.js';
+import worker, { parseEntry, parseService, configProblem, sniffImage, paymentUrl, auditPage } from '../src/worker.js';
 
 const TEAM = 'zyria-test.cloudflareaccess.com';
 const AUD = 'a'.repeat(64);
@@ -112,6 +112,15 @@ await t('only real images are accepted, whatever the file is called', async () =
   assert.equal(sniffImage(new TextEncoder().encode('<svg onload=alert(1)>')), null);
   assert.equal(sniffImage(new TextEncoder().encode('<html><script>')), null);
   assert.equal(sniffImage(bytes()), null);
+});
+
+await t('activity paging only allows 10, 20, 50 or 100 per page', async () => {
+  const q = (s) => auditPage(new URLSearchParams(s));
+  assert.deepEqual(q(''), { page: 1, size: 10 });
+  assert.deepEqual(q('page=3&size=50'), { page: 3, size: 50 });
+  assert.deepEqual(q('page=-2&size=7'), { page: 1, size: 10 });
+  assert.deepEqual(q('page=abc&size=100'), { page: 1, size: 100 });
+  assert.deepEqual(q('page=2.7&size=20'), { page: 2, size: 20 });
 });
 
 console.log(`\n${n} checks passed`);

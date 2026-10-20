@@ -157,3 +157,18 @@ tr.uncounted .prio{opacity:.6}
 .field.check span{font-size:13px;color:var(--ink);font-weight:500}
 .field.check span.sub{color:var(--muted);font-weight:400}
 button.ghost[data-count]:hover{color:var(--accent)}
+/* two-line text with Read more */
+.clamp{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:280px}
+.clamp-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+.clamp.open .clamp-text{display:block;-webkit-line-clamp:unset;line-clamp:unset}
+.clamp .clamp-text .sub{display:inline}
+.clamp .clamp-text .sub::before{content:" · "}
+.clamp.open .clamp-text .sub{display:block}
+.clamp.open .clamp-text .sub::before{content:none}
+.more-btn{font-size:12px}
+/* activity pages */
+.pager{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center}
+.pager button{padding:6px 10px}
+#auditTable{transition:opacity .15s}
+#auditTable.loading{opacity:.55}
+@media (prefers-reduced-motion:reduce){#auditTable{transition:none}}

@@ -88,12 +88,42 @@
     if (a.action === 'SETTINGS_FX' && /^\d+(\.\d+)?$/.test(a.detail)) return `${ngnExact(Number(a.detail))} per $1`;
     return String(a.detail || '').replace(/(-?\d+(?:\.\d+)?) NGN/g, (_, n) => ngnExact(Number(n)));
   }
-  async function loadAudit() {
+  // Activity is fetched one page at a time; moving between pages only swaps the table rows.
+  const audit = { page: 1, size: 10, pages: 1, total: 0, req: 0 };
+  try { const saved = Number(localStorage.getItem('zc-audit-size')); if ([10, 20, 50, 100].includes(saved)) audit.size = saved; } catch { /* storage blocked */ }
+  async function loadAudit(page = audit.page) {
+    const id = ++audit.req;
+    $('auditTable').classList.add('loading');
     try {
-      const d = await call('GET', '/api/audit');
+      const d = await call('GET', `/api/audit?page=${page}&size=${audit.size}`);
+      if (id !== audit.req) return; // a newer page was asked for meanwhile
+      // If the last page emptied (e.g. after changing the page size), step back to the real last page.
+      if (!d.audit.length && d.total && d.page > d.pages) return loadAudit(d.pages);
+      Object.assign(audit, { page: d.page, pages: d.pages, total: d.total });
       $('auditBody').innerHTML = d.audit.length ? d.audit.map((a) => `<tr><td class="mono">${esc(new Date(a.at).toLocaleString('en-GB', { timeZone: 'Africa/Lagos' }))}</td><td>${esc(a.email)}</td><td>${esc(ACTION_LABEL[a.action] || a.action)}</td><td class="sub">${esc(prettyDetail(a))}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No changes yet.</td></tr>';
-    } catch (e) { $('auditBody').innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`; }
+      const from = d.total ? (d.page - 1) * d.size + 1 : 0, to = Math.min(d.total, d.page * d.size);
+      $('auditRange').textContent = d.total ? `Showing ${from.toLocaleString('en-NG')}–${to.toLocaleString('en-NG')} of ${d.total.toLocaleString('en-NG')} changes` : '';
+      $('auditPageLbl').textContent = `Page ${d.page} of ${d.pages}`;
+      $('auditFirst').disabled = $('auditPrev').disabled = d.page <= 1;
+      $('auditNext').disabled = $('auditLast').disabled = d.page >= d.pages;
+    } catch (e) {
+      if (id === audit.req) $('auditBody').innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+    } finally {
+      if (id === audit.req) $('auditTable').classList.remove('loading');
+    }
   }
+  $('auditSize').value = String(audit.size);
+  $('auditSize').addEventListener('change', (e) => {
+    const first = (audit.page - 1) * audit.size; // keep the same rows in view
+    audit.size = Number(e.target.value);
+    try { localStorage.setItem('zc-audit-size', String(audit.size)); } catch { /* storage blocked */ }
+    loadAudit(Math.floor(first / audit.size) + 1);
+  });
+  $('auditFirst').addEventListener('click', () => loadAudit(1));
+  $('auditPrev').addEventListener('click', () => loadAudit(Math.max(1, audit.page - 1)));
+  $('auditNext').addEventListener('click', () => loadAudit(Math.min(audit.pages, audit.page + 1)));
+  $('auditLast').addEventListener('click', () => loadAudit(audit.pages));
+
 
   // A yearly service switched to "once a year" stays out of the monthly figures entirely.
   const notSpread = (s) => s.billing === 'YEARLY' && s.spreadMonthly === false;
@@ -115,6 +145,17 @@
     const more = list.length > max ? `<button type="button" class="mini more" data-lb="${esc(key)}" data-i="${max}" aria-label="View all ${list.length} screenshots">+${list.length - max}</button>` : '';
     return `<div class="minis">${shown}${more}</div>`;
   }
+  // Long text is cut to two lines with a "Read more" toggle; which cells are open survives re-renders.
+  const expanded = new Set();
+  const clamp = (html, key) => (html ? `<div class="clamp${expanded.has(key) ? ' open' : ''}" data-key="${esc(key)}"><div class="clamp-text">${html}</div><button type="button" class="linkish more-btn" data-more="${esc(key)}" hidden>${expanded.has(key) ? 'Show less' : 'Read more'}</button></div>` : '');
+  // Only offer "Read more" where the text really is cut off.
+  function markClamps() {
+    document.querySelectorAll('.clamp').forEach((c) => {
+      const t = c.querySelector('.clamp-text');
+      c.querySelector('.more-btn').hidden = !c.classList.contains('open') && t.scrollHeight <= t.clientHeight + 1;
+    });
+  }
+  window.addEventListener('resize', () => requestAnimationFrame(markClamps));
   function filesCell(type, item, linkUrl, title) {
     const strip = thumbStrip(`${type}:${item.id}`, title, filesOf(type, item.id));
     const link = safeLink(linkUrl);
@@ -211,8 +252,9 @@
     const svcs = [...state.services].sort((a, b) => (a.status === b.status ? 0 : a.status === 'ACTIVE' ? -1 : 1) || prioRank(a.priority) - prioRank(b.priority) || CATS.indexOf(a.category) - CATS.indexOf(b.category) || a.name.localeCompare(b.name));
     $('svcBody').innerHTML = svcs.length ? svcs.map((s) => {
       const cls = s.status !== 'ACTIVE' ? 'off' : s.billing === 'USAGE' ? 'usage' : '';
-      return `<tr><td><strong>${esc(s.name)}</strong><div class="sub">${esc(s.category)}</div></td><td>${prioPill(s.priority)}</td><td>${esc(s.usedFor)}${s.notes ? `<div class="sub">${esc(s.notes)}</div>` : ''}</td><td>${esc(s.plan)}</td><td><span class="pill ${cls}">${s.status !== 'ACTIVE' ? 'Cancelled' : BILL_LABEL[s.billing]}</span>${s.renewsOn ? `<div class="sub">renews ${esc(s.renewsOn)}</div>` : ''}</td><td class="num">${s.billing === 'FREE' || !s.price ? '–' : money(s.price, s.currency)}</td><td class="num">${notSpread(s) ? '–<div class="sub">once a year</div>' : ngn(monthlyEquiv(s))}${s.billing === 'YEARLY' && s.status === 'ACTIVE' ? `<div><button class="linkish" data-spread="${esc(s.id)}">${notSpread(s) ? 'Spread monthly' : "Don't spread"}</button></div>` : ''}</td><td class="sub">${esc(s.nextTier)}</td><td>${filesCell('service', s, s.paymentUrl, s.name)}</td><td class="nowrap"><button class="ghost" data-edit-svc="${esc(s.id)}">Edit</button><button class="ghost" data-del-svc="${esc(s.id)}">Delete</button></td></tr>`;
+      return `<tr><td><strong>${esc(s.name)}</strong><div class="sub">${esc(s.category)}</div></td><td>${prioPill(s.priority)}</td><td>${clamp(`${esc(s.usedFor)}${s.notes ? `<div class="sub">${esc(s.notes)}</div>` : ''}`, `use:${s.id}`)}</td><td>${esc(s.plan)}</td><td><span class="pill ${cls}">${s.status !== 'ACTIVE' ? 'Cancelled' : BILL_LABEL[s.billing]}</span>${s.renewsOn ? `<div class="sub">renews ${esc(s.renewsOn)}</div>` : ''}</td><td class="num">${s.billing === 'FREE' || !s.price ? '–' : money(s.price, s.currency)}</td><td class="num">${notSpread(s) ? '–<div class="sub">once a year</div>' : ngn(monthlyEquiv(s))}${s.billing === 'YEARLY' && s.status === 'ACTIVE' ? `<div><button class="linkish" data-spread="${esc(s.id)}">${notSpread(s) ? 'Spread monthly' : "Don't spread"}</button></div>` : ''}</td><td class="sub">${clamp(esc(s.nextTier), `next:${s.id}`)}</td><td>${filesCell('service', s, s.paymentUrl, s.name)}</td><td class="nowrap"><button class="ghost" data-edit-svc="${esc(s.id)}">Edit</button><button class="ghost" data-del-svc="${esc(s.id)}">Delete</button></td></tr>`;
     }).join('') : `<tr><td colspan="10" class="empty">${state.ready ? 'No services yet. Add the first one.' : 'Loading services…'}</td></tr>`;
+    requestAnimationFrame(markClamps);
   }
 
   function drawChart(byMonth) {
@@ -448,10 +490,18 @@
       document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t === b)));
       ['ledger', 'services', 'activity'].forEach((t) => { $('view-' + t).hidden = state.tab !== t; });
       if (state.tab === 'activity') loadAudit();
+      if (state.tab === 'services') requestAnimationFrame(markClamps);
       return;
     }
     if (b.dataset.unpend) { const [pre, i] = b.dataset.unpend.split(':'); pending[pre].splice(+i, 1); drawThumbs(pre); return; }
     if (b.dataset.unsave) { const [pre, id] = b.dataset.unsave.split(':'); removed[pre].push(id); drawThumbs(pre); return; }
+    if (b.dataset.more) {
+      const key = b.dataset.more, box = b.closest('.clamp');
+      if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+      box.classList.toggle('open', expanded.has(key));
+      b.textContent = expanded.has(key) ? 'Show less' : 'Read more';
+      return;
+    }
     if (b.dataset.markPaid) return markPaid(b.dataset.markPaid);
     if (b.dataset.count) return toggleCounted(b.dataset.count);
     if (b.dataset.spread) return toggleSpread(b.dataset.spread);

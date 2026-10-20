@@ -167,6 +167,8 @@ Shipbubble. Medium: Sentry, GitHub, OpenAI. Low: this app). Change any of them i
   the totals" in its form. It then shows greyed out and crossed through, marked *Not counted*, and
   is left out of every total, the monthly average, the chart, the categories and Due to pay.
   **Count it** puts it back. The ledger's status filter has a *Not counted* option to find them.
+- **Activity**: every change, newest first, 10 to a page by default (choose 20, 50 or 100; the app
+  remembers your choice on that browser). Paging fetches only that page, without reloading.
 - **Export CSV**: downloads the selected year for your accountant, with priority, status and links.
 - Services with recorded bills can't be deleted. Mark them **Cancelled** so past totals stay right.
 

@@ -157,8 +157,13 @@ async function api(request, env, url, email) {
 
   if (m === 'GET' && path === '/api/state') return json(await loadState(env, email));
   if (m === 'GET' && path === '/api/audit') {
-    const { results } = await env.DB.prepare('SELECT at, email, action, target, detail FROM audit_log ORDER BY id DESC LIMIT 100').all();
-    return json({ audit: results });
+    const { page, size } = auditPage(url.searchParams);
+    const [count, rows] = await env.DB.batch([
+      env.DB.prepare('SELECT COUNT(*) AS n FROM audit_log'),
+      env.DB.prepare('SELECT at, email, action, target, detail FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?').bind(size, (page - 1) * size),
+    ]);
+    const total = count.results[0].n;
+    return json({ audit: rows.results, total, page, size, pages: Math.max(1, Math.ceil(total / size)) });
   }
 
   if (seg[0] === 'attachments') return attachmentsApi(request, env, url, email, seg);
@@ -378,6 +383,13 @@ function audit(env, email, action, target, detail) {
 }
 
 // ---------- validation ----------
+
+// Activity paging: 10, 20, 50 or 100 per page (10 if anything else is asked for).
+export function auditPage(params) {
+  const size = [10, 20, 50, 100].includes(Number(params.get('size'))) ? Number(params.get('size')) : 10;
+  const page = Math.min(100000, Math.max(1, Math.floor(Number(params.get('page'))) || 1));
+  return { page, size };
+}
 
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const date = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) ? v : null);
