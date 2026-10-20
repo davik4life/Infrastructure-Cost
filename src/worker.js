@@ -7,6 +7,9 @@
 const CATEGORIES = ['Hosting', 'Database', 'Storage & media', 'Email', 'Monitoring', 'Cache & rate limits', 'Domain & DNS', 'AI', 'Payments', 'Logistics', 'Dev tools', 'Other'];
 const BILLING = ['MONTHLY', 'YEARLY', 'USAGE', 'FREE'];
 const CURRENCIES = ['USD', 'NGN'];
+const PRIORITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_UPLOADS_PER_ITEM = 10;
 
 // Sent on every response: keep search engines, AI crawlers and link previewers out.
 const BASE_HEADERS = {
@@ -16,7 +19,7 @@ const BASE_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'Cache-Control': 'no-store',
 };
 
@@ -28,6 +31,11 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === '/robots.txt') return withHeaders(new Response(ROBOTS_TXT, { headers: { 'Content-Type': 'text/plain' } }));
 
+      const problem = configProblem(env);
+      if (problem) {
+        console.error('Access settings problem:', problem);
+        return withHeaders(json({ error: `This app's Cloudflare Access settings are wrong: ${problem}` }, 503));
+      }
       const email = await signedInEmail(request, env, url);
       if (!email) return withHeaders(json({ error: 'Sign in through Cloudflare Access to use this app.' }, 403));
 
@@ -46,6 +54,9 @@ export default {
 function withHeaders(res) {
   const out = new Response(res.body, res);
   for (const [k, v] of Object.entries(BASE_HEADERS)) out.headers.set(k, v);
+  // Uploaded files carry a locked-down policy of their own (see serveAttachment).
+  const own = res.headers.get('X-Own-CSP');
+  if (own) { out.headers.set('Content-Security-Policy', own); out.headers.delete('X-Own-CSP'); }
   return out;
 }
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
@@ -58,6 +69,18 @@ function sameOrigin(request, url) {
 }
 
 // ---------- Cloudflare Access token check ----------
+
+// Catches the usual setup mistakes so they show up as a clear message, not a silent 403.
+// Returns null when the settings look right, or when they're blank (local development).
+export function configProblem(env) {
+  const team = (env.ACCESS_TEAM_DOMAIN || '').trim();
+  const aud = (env.ACCESS_AUD || '').trim();
+  if (!team && !aud) return null;
+  if (team.startsWith('REPLACE') || aud.startsWith('REPLACE')) return 'ACCESS_TEAM_DOMAIN and ACCESS_AUD in wrangler.jsonc still hold placeholders.';
+  if (!/^[a-z0-9-]+\.cloudflareaccess\.com$/i.test(team)) return 'ACCESS_TEAM_DOMAIN must be your Zero Trust team domain, like yourteam.cloudflareaccess.com (no https://).';
+  if (!/^[a-f0-9]{64}$/i.test(aud)) return 'ACCESS_AUD must be the application\'s "Application Audience (AUD) Tag", a 64-character code (not the application ID).';
+  return null;
+}
 
 let certCache = { at: 0, keys: null, team: '' };
 
@@ -74,8 +97,9 @@ async function signedInEmail(request, env, url) {
 
   if (!configured) return null;
   const token = request.headers.get('Cf-Access-Jwt-Assertion') || cookie(request, 'CF_Authorization');
-  if (!token) return null;
+  if (!token) { console.warn('No Access sign-in token on the request. Is the Access application set up for this hostname?'); return null; }
   const payload = await verifyAccessJwt(token, team, aud);
+  if (!payload) console.warn('Access sign-in token was refused (wrong AUD tag, team domain, or expired).');
   return payload && typeof payload.email === 'string' ? payload.email.toLowerCase() : null;
 }
 
@@ -137,6 +161,8 @@ async function api(request, env, url, email) {
     return json({ audit: results });
   }
 
+  if (seg[0] === 'attachments') return attachmentsApi(request, env, url, email, seg);
+
   const body = m === 'GET' || m === 'DELETE' ? null : await request.json().catch(() => undefined);
   if (body === undefined) return json({ error: 'Send the details as JSON.' }, 400);
 
@@ -156,8 +182,8 @@ async function api(request, env, url, email) {
       if (s.error) return json({ error: s.error }, 400);
       const id = crypto.randomUUID();
       await env.DB.batch([
-        env.DB.prepare('INSERT INTO services (id, name, category, used_for, plan, billing, price_minor, currency, renews_on, status, next_tier, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-          .bind(id, s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes),
+        env.DB.prepare('INSERT INTO services (id, name, category, used_for, plan, billing, price_minor, currency, renews_on, status, next_tier, notes, priority, payment_url) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, s.priority, s.paymentUrl),
         audit(env, email, 'SERVICE_CREATED', id, s.name),
       ]);
       return json({ ok: true, id }, 201);
@@ -169,14 +195,15 @@ async function api(request, env, url, email) {
       if (m === 'DELETE') {
         const used = await env.DB.prepare('SELECT COUNT(*) AS n FROM entries WHERE service_id = ?').bind(id).first();
         if (used.n > 0) return json({ error: `This service has ${used.n} recorded bill${used.n === 1 ? '' : 's'}. Mark it as cancelled instead, so past totals stay correct.` }, 409);
+        await deleteAttachmentsOf(env, 'service', id);
         await env.DB.batch([env.DB.prepare('DELETE FROM services WHERE id = ?').bind(id), audit(env, email, 'SERVICE_DELETED', id, existing.name)]);
         return json({ ok: true });
       }
       const s = parseService(body);
       if (s.error) return json({ error: s.error }, 400);
       await env.DB.batch([
-        env.DB.prepare("UPDATE services SET name=?, category=?, used_for=?, plan=?, billing=?, price_minor=?, currency=?, renews_on=?, status=?, next_tier=?, notes=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
-          .bind(s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, id),
+        env.DB.prepare("UPDATE services SET name=?, category=?, used_for=?, plan=?, billing=?, price_minor=?, currency=?, renews_on=?, status=?, next_tier=?, notes=?, priority=?, payment_url=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
+          .bind(s.name, s.category, s.usedFor, s.plan, s.billing, s.priceMinor, s.currency, s.renewsOn, s.status, s.nextTier, s.notes, s.priority, s.paymentUrl, id),
         audit(env, email, 'SERVICE_UPDATED', id, s.name),
       ]);
       return json({ ok: true });
@@ -198,20 +225,23 @@ async function api(request, env, url, email) {
       const { results } = await env.DB.prepare(`SELECT id FROM services WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
       if (results.length !== ids.length) return json({ error: 'One of those services no longer exists. Reload the page.' }, 400);
       const stmts = [];
+      const newIds = [];
       for (const e of parsed) {
         const id = crypto.randomUUID();
-        stmts.push(env.DB.prepare('INSERT INTO entries (id, service_id, period, amount_minor, currency, fx_x100, ngn_kobo, paid_on, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)')
-          .bind(id, e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, email));
+        newIds.push(id);
+        stmts.push(env.DB.prepare('INSERT INTO entries (id, service_id, period, amount_minor, currency, fx_x100, ngn_kobo, paid_on, note, created_by, priority, payment_url, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, email, e.priority, e.paymentUrl, e.status));
       }
       stmts.push(audit(env, email, 'ENTRIES_CREATED', parsed[0].period, `${parsed.length} bill(s), ${parsed.reduce((a, e) => a + e.ngnKobo, 0) / 100} NGN`));
       await env.DB.batch(stmts);
-      return json({ ok: true, count: parsed.length }, 201);
+      return json({ ok: true, count: parsed.length, ids: newIds }, 201);
     }
     if (seg.length === 2 && (m === 'PUT' || m === 'DELETE')) {
       const id = seg[1];
       const existing = await env.DB.prepare('SELECT period, ngn_kobo FROM entries WHERE id = ?').bind(id).first();
       if (!existing) return json({ error: 'That bill no longer exists.' }, 404);
       if (m === 'DELETE') {
+        await deleteAttachmentsOf(env, 'entry', id);
         await env.DB.batch([env.DB.prepare('DELETE FROM entries WHERE id = ?').bind(id), audit(env, email, 'ENTRY_DELETED', id, `${existing.period}, ${existing.ngn_kobo / 100} NGN`)]);
         return json({ ok: true });
       }
@@ -220,8 +250,8 @@ async function api(request, env, url, email) {
       const svc = await env.DB.prepare('SELECT id FROM services WHERE id = ?').bind(e.serviceId).first();
       if (!svc) return json({ error: 'That service no longer exists. Reload the page.' }, 400);
       await env.DB.batch([
-        env.DB.prepare("UPDATE entries SET service_id=?, period=?, amount_minor=?, currency=?, fx_x100=?, ngn_kobo=?, paid_on=?, note=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
-          .bind(e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, id),
+        env.DB.prepare("UPDATE entries SET service_id=?, period=?, amount_minor=?, currency=?, fx_x100=?, ngn_kobo=?, paid_on=?, note=?, priority=?, payment_url=?, status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
+          .bind(e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, e.priority, e.paymentUrl, e.status, id),
         audit(env, email, 'ENTRY_UPDATED', id, `${e.period}, ${e.ngnKobo / 100} NGN`),
       ]);
       return json({ ok: true });
@@ -232,23 +262,115 @@ async function api(request, env, url, email) {
 }
 
 async function loadState(env, email) {
-  const [services, entries, settings] = await env.DB.batch([
+  const [services, entries, settings, files] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM services ORDER BY name'),
     env.DB.prepare('SELECT * FROM entries ORDER BY period DESC, created_at DESC'),
     env.DB.prepare("SELECT fx_x100 FROM settings WHERE id = 'default'"),
+    env.DB.prepare('SELECT id, owner_type, owner_id, filename, content_type, size, created_by, created_at FROM attachments ORDER BY created_at'),
   ]);
   return {
     me: email,
+    uploadsEnabled: Boolean(env.UPLOADS),
+    attachments: files.results.map((a) => ({ id: a.id, ownerType: a.owner_type, ownerId: a.owner_id, filename: a.filename, contentType: a.content_type, size: a.size, createdBy: a.created_by, createdAt: a.created_at })),
     fxRate: (settings.results[0]?.fx_x100 ?? 133500) / 100,
     services: services.results.map((s) => ({
       id: s.id, name: s.name, category: s.category, usedFor: s.used_for, plan: s.plan, billing: s.billing,
       price: s.price_minor / 100, currency: s.currency, renewsOn: s.renews_on || '', status: s.status, nextTier: s.next_tier, notes: s.notes,
+      priority: s.priority, paymentUrl: s.payment_url,
     })),
     entries: entries.results.map((e) => ({
       id: e.id, serviceId: e.service_id, period: e.period, amount: e.amount_minor / 100, currency: e.currency,
       fxRate: e.fx_x100 / 100, ngn: e.ngn_kobo / 100, paidOn: e.paid_on || '', note: e.note, createdBy: e.created_by,
+      priority: e.priority, paymentUrl: e.payment_url, status: e.status,
     })),
   };
+}
+
+// ---------- screenshots ----------
+
+// Only these image types are accepted, recognised from the file's first bytes rather than
+// trusting the name or the browser's label. SVG is refused because it can carry scripts.
+export function sniffImage(bytes) {
+  const b = bytes;
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a) return 'image/png';
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length >= 12 && String.fromCharCode(...b.slice(0, 4)) === 'RIFF' && String.fromCharCode(...b.slice(8, 12)) === 'WEBP') return 'image/webp';
+  if (b.length >= 6 && /^GIF8[79]a$/.test(String.fromCharCode(...b.slice(0, 6)))) return 'image/gif';
+  return null;
+}
+
+async function attachmentsApi(request, env, url, email, seg) {
+  if (!env.UPLOADS) return json({ error: 'Screenshot storage isn\'t set up yet. See "Screenshots" in the README.' }, 503);
+  const m = request.method;
+
+  if (m === 'POST' && seg.length === 1) {
+    const ownerType = url.searchParams.get('ownerType');
+    const ownerId = url.searchParams.get('ownerId') || '';
+    if (!['service', 'entry'].includes(ownerType) || !ownerId) return json({ error: 'Say which service or bill the screenshot belongs to.' }, 400);
+    const table = ownerType === 'service' ? 'services' : 'entries';
+    const owner = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ?`).bind(ownerId).first();
+    if (!owner) return json({ error: 'That service or bill no longer exists. Reload the page.' }, 404);
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM attachments WHERE owner_type = ? AND owner_id = ?').bind(ownerType, ownerId).first();
+    if (count.n >= MAX_UPLOADS_PER_ITEM) return json({ error: `Each item can hold up to ${MAX_UPLOADS_PER_ITEM} screenshots. Delete one first.` }, 400);
+
+    const declared = Number(request.headers.get('Content-Length') || 0);
+    if (declared > MAX_UPLOAD_BYTES) return json({ error: 'That image is over 5 MB. Crop it or save it as JPEG and try again.' }, 413);
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes.length === 0) return json({ error: 'That file is empty.' }, 400);
+    if (bytes.length > MAX_UPLOAD_BYTES) return json({ error: 'That image is over 5 MB. Crop it or save it as JPEG and try again.' }, 413);
+    const type = sniffImage(bytes);
+    if (!type) return json({ error: 'Only PNG, JPEG, WebP or GIF images can be uploaded.' }, 415);
+
+    let filename = '';
+    try { filename = decodeURIComponent(request.headers.get('X-Filename') || ''); } catch { /* keep blank */ }
+    filename = filename.replace(/[\u0000-\u001f\\/]/g, '').trim().slice(0, 120) || 'screenshot';
+    const id = crypto.randomUUID();
+    const key = `${ownerType}/${ownerId}/${id}`;
+    await env.UPLOADS.put(key, bytes, { httpMetadata: { contentType: type } });
+    try {
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO attachments (id, owner_type, owner_id, r2_key, filename, content_type, size, created_by) VALUES (?,?,?,?,?,?,?,?)').bind(id, ownerType, ownerId, key, filename, type, bytes.length, email),
+        audit(env, email, 'ATTACHMENT_ADDED', `${ownerType}:${ownerId}`, filename),
+      ]);
+    } catch (err) {
+      await env.UPLOADS.delete(key); // don't leave an orphaned file behind
+      throw err;
+    }
+    return json({ ok: true, id }, 201);
+  }
+
+  if (seg.length === 2) {
+    const row = await env.DB.prepare('SELECT * FROM attachments WHERE id = ?').bind(seg[1]).first();
+    if (!row) return json({ error: 'That screenshot no longer exists.' }, 404);
+    if (m === 'GET') {
+      const obj = await env.UPLOADS.get(row.r2_key);
+      if (!obj) return json({ error: 'That screenshot is missing from storage.' }, 404);
+      return new Response(obj.body, {
+        headers: {
+          'Content-Type': row.content_type,
+          'Content-Length': String(row.size),
+          'Content-Disposition': `inline; filename="${row.filename.replace(/[^\w.\- ]/g, '_')}"`,
+          'X-Own-CSP': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
+        },
+      });
+    }
+    if (m === 'DELETE') {
+      await env.UPLOADS.delete(row.r2_key);
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM attachments WHERE id = ?').bind(row.id),
+        audit(env, email, 'ATTACHMENT_DELETED', `${row.owner_type}:${row.owner_id}`, row.filename),
+      ]);
+      return json({ ok: true });
+    }
+  }
+  return json({ error: 'Not found.' }, 404);
+}
+
+async function deleteAttachmentsOf(env, ownerType, ownerId) {
+  const { results } = await env.DB.prepare('SELECT id, r2_key FROM attachments WHERE owner_type = ? AND owner_id = ?').bind(ownerType, ownerId).all();
+  if (!results.length) return;
+  if (env.UPLOADS) await env.UPLOADS.delete(results.map((r) => r.r2_key));
+  await env.DB.prepare('DELETE FROM attachments WHERE owner_type = ? AND owner_id = ?').bind(ownerType, ownerId).run();
 }
 
 function audit(env, email, action, target, detail) {
@@ -264,6 +386,18 @@ function minor(v) {
   if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 1e11) return null;
   return Math.round(n * 100);
 }
+// Payment links must be ordinary https:// web addresses (no javascript:, no passwords in the link).
+export function paymentUrl(v) {
+  const raw = typeof v === 'string' ? v.trim() : '';
+  if (!raw) return '';
+  if (raw.length > 500) return null;
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:' || u.username || u.password) return null;
+  return u.toString();
+}
+const priority = (v) => { const p = String(v || 'MEDIUM').toUpperCase(); return PRIORITIES.includes(p) ? p : null; };
+
 function rate(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0 || n > 1e6) return null;
@@ -282,8 +416,12 @@ export function parseService(b) {
   if (priceMinor === null) return { error: 'Enter the planned cost as a number of zero or more.' };
   const status = String(b.status || 'ACTIVE').toUpperCase();
   if (!['ACTIVE', 'CANCELLED'].includes(status)) return { error: 'Choose active or cancelled.' };
+  const prio = priority(b.priority);
+  if (!prio) return { error: 'Choose a priority.' };
+  const link = paymentUrl(b.paymentUrl);
+  if (link === null) return { error: 'The payment link must be a full web address starting with https://' };
   return {
-    name, billing, currency, priceMinor, status,
+    name, billing, currency, priceMinor, status, priority: prio, paymentUrl: link,
     category: CATEGORIES.includes(b.category) ? b.category : 'Other',
     usedFor: text(b.usedFor, 300), plan: text(b.plan, 120), nextTier: text(b.nextTier, 300), notes: text(b.notes, 500),
     renewsOn: date(b.renewsOn),
@@ -307,5 +445,11 @@ export function parseEntry(b) {
   }
   // amount (cents) x rate (NGN x100) / 100 = kobo
   const ngnKobo = currency === 'USD' ? Math.round((amountMinor * fx) / 100) : amountMinor;
-  return { serviceId, period, amountMinor, currency, fx, ngnKobo, paidOn: date(b.paidOn), note: text(b.note, 300) };
+  const prio = priority(b.priority);
+  if (!prio) return { error: 'Choose a priority.' };
+  const link = paymentUrl(b.paymentUrl);
+  if (link === null) return { error: 'The payment link must be a full web address starting with https://' };
+  const status = String(b.status || 'PAID').toUpperCase();
+  if (!['PAID', 'DUE'].includes(status)) return { error: 'Choose paid or due.' };
+  return { serviceId, period, amountMinor, currency, fx, ngnKobo, paidOn: date(b.paidOn), note: text(b.note, 300), priority: prio, paymentUrl: link, status };
 }

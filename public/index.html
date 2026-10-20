@@ -30,10 +30,15 @@
   <div id="notice" class="notice" hidden></div>
 
   <section class="kpis" aria-label="Summary">
-    <div class="kpi"><span class="eyebrow" id="kTotalLbl">Total spent</span><span class="v" id="kTotal">₦0</span><span class="s" id="kTotalSub">–</span></div>
+    <div class="kpi"><span class="eyebrow" id="kTotalLbl">Total costs</span><span class="v" id="kTotal">₦0</span><span class="s" id="kTotalSub">–</span></div>
     <div class="kpi"><span class="eyebrow">Average per recorded month</span><span class="v" id="kAvg">₦0</span><span class="s" id="kAvgSub">–</span></div>
     <div class="kpi"><span class="eyebrow">Planned monthly run-rate</span><span class="v" id="kRun">₦0</span><span class="s" id="kRunSub">from active services</span></div>
     <div class="kpi"><span class="eyebrow">Planned yearly</span><span class="v" id="kYear">₦0</span><span class="s">run-rate × 12</span></div>
+  </section>
+
+  <section class="panel due-panel" id="duePanel" hidden>
+    <div class="panel-head"><h2>Due to pay</h2><span class="sub" id="dueSub"></span></div>
+    <ul class="due-list" id="dueList"></ul>
   </section>
 
   <div class="grid2">
@@ -58,12 +63,14 @@
       <div class="toolbar">
         <span class="sub" id="ledgerSub"></span>
         <div class="controls">
+          <label class="inline" for="prioFilter">Show <select id="prioFilter"><option value="">All priorities</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
+          <label class="inline" for="statusFilter"><select id="statusFilter"><option value="">Paid and due</option><option value="DUE">Due only</option><option value="PAID">Paid only</option></select></label>
           <button id="exportBtn">Export CSV</button>
           <button id="addEntryBtn" class="primary">Add entry</button>
         </div>
       </div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Paid on</th><th>Service</th><th>Note</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">In naira</th><th></th></tr></thead>
+        <thead><tr><th>Service</th><th>Priority</th><th>Status</th><th>Note</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">In naira</th><th>Files &amp; link</th><th></th></tr></thead>
         <tbody id="ledgerBody"></tbody>
       </table></div>
     </div>
@@ -74,7 +81,7 @@
         <button id="addSvcBtn" class="primary">Add service</button>
       </div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Service</th><th>Used for</th><th>Plan</th><th>Billing</th><th class="num">Planned</th><th class="num">≈ ₦ / month</th><th>Next step up</th><th></th></tr></thead>
+        <thead><tr><th>Service</th><th>Priority</th><th>Used for</th><th>Plan</th><th>Billing</th><th class="num">Planned</th><th class="num">≈ ₦ / month</th><th>Next step up</th><th>Files &amp; link</th><th></th></tr></thead>
         <tbody id="svcBody"></tbody>
       </table></div>
     </div>
@@ -99,7 +106,15 @@
     <label class="field"><span>Currency</span><select id="eCur"><option>USD</option><option>NGN</option></select></label>
     <label class="field"><span>₦ per $1 on the bill</span><input id="eFx" class="mono" type="number" step="0.01" min="1"></label>
     <label class="field"><span>In naira</span><input id="eNgn" class="mono" type="text" readonly tabindex="-1"></label>
+    <label class="field"><span>Priority</span><select id="ePrio"><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
+    <label class="field"><span>Status</span><select id="eStatus"><option value="PAID">Paid</option><option value="DUE">Due, not paid yet</option></select></label>
+    <label class="field full"><span>Payment link</span><input id="eLink" type="url" maxlength="500" placeholder="https://… the page where this bill is paid or viewed"></label>
     <label class="field full"><span>Note</span><input id="eNote" type="text" maxlength="300" placeholder="Invoice number, overage, anything worth remembering"></label>
+    <div class="field full shots" id="eShots">
+      <span>Screenshots <span class="sub">(PNG, JPEG, WebP or GIF, up to 5 MB each. You can also paste one here.)</span></span>
+      <div class="thumbs" id="eThumbs"></div>
+      <label class="upload-btn" for="eFiles">Add screenshots<input id="eFiles" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label>
+    </div>
   </div>
   <p class="sub err" id="entryErr" hidden></p>
   <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save entry</button></div>
@@ -117,8 +132,15 @@
     <label class="field"><span>Currency</span><select id="sCur"><option>USD</option><option>NGN</option></select></label>
     <label class="field"><span>Renews on (yearly)</span><input id="sRenew" type="date"></label>
     <label class="field"><span>Status</span><select id="sStatus"><option value="ACTIVE">Active</option><option value="CANCELLED">Cancelled</option></select></label>
+    <label class="field"><span>Priority</span><select id="sPrio"><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
+    <label class="field full"><span>Billing or payment page</span><input id="sLink" type="url" maxlength="500" placeholder="https://… where you view the plan or pay"></label>
     <label class="field full"><span>Next step up</span><input id="sNext" maxlength="300" placeholder="The plan you'd move to and what triggers it"></label>
     <label class="field full"><span>Notes</span><input id="sNotes" maxlength="500"></label>
+    <div class="field full shots" id="sShots">
+      <span>Screenshots <span class="sub">(PNG, JPEG, WebP or GIF, up to 5 MB each. You can also paste one here.)</span></span>
+      <div class="thumbs" id="sThumbs"></div>
+      <label class="upload-btn" for="sFiles">Add screenshots<input id="sFiles" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple></label>
+    </div>
   </div>
   <p class="sub err" id="svcErr" hidden></p>
   <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save service</button></div>
@@ -130,10 +152,16 @@
   <div class="form-grid">
     <label class="field"><span>Month</span><input id="rMonth" type="month" required></label>
     <label class="field"><span>₦ per $1 for this month</span><input id="rFx" class="mono" type="number" step="0.01" min="1"></label>
+    <label class="field"><span>These bills are</span><select id="rStatus"><option value="PAID">Paid</option><option value="DUE">Due, not paid yet</option></select></label>
   </div>
   <div class="rec-list" id="recList"></div>
   <p class="sub err" id="recErr" hidden></p>
   <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save month</button></div>
 </form></dialog>
+
+<dialog id="viewDlg"><div class="dlg">
+  <div class="panel-head"><h2 id="viewTitle">Screenshots</h2><button type="button" data-close>Close</button></div>
+  <div class="viewer" id="viewer"></div>
+</div></dialog>
 </body>
 </html>

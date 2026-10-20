@@ -27,11 +27,22 @@
 			"migrations_dir": "migrations"
 		}
 	],
+	// Private bucket for screenshots. Files are only served through the Worker, after sign-in.
+	"r2_buckets": [
+		{
+			"binding": "UPLOADS",
+			"bucket_name": "zyria-costs-uploads"
+		},
+		{
+			"bucket_name": "zyria-costs-uploads",
+			"binding": "zyria_costs_uploads"
+		}
+	],
 	"vars": {
 		// From Zero Trust → Settings → Custom pages (team domain), e.g. "zyria.cloudflareaccess.com".
-		"ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM_DOMAIN",
+		"ACCESS_TEAM_DOMAIN": "dark-lake-e4ad.cloudflareaccess.com",
 		// From Zero Trust → Access → Applications → this app → Overview → "Application Audience (AUD) Tag".
-		"ACCESS_AUD": "REPLACE_WITH_AUD_TAG"
+		"ACCESS_AUD": "750619b48785d7e64392db47cbb6c71b84bafdd93eb0a1ad79c94ad3a9937ba8"
 	},
 	"observability": {
 		"enabled": true
