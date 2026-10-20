@@ -64,7 +64,7 @@
         <span class="sub" id="ledgerSub"></span>
         <div class="controls">
           <label class="inline" for="prioFilter">Show <select id="prioFilter"><option value="">All priorities</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
-          <label class="inline" for="statusFilter"><select id="statusFilter"><option value="">Paid and due</option><option value="DUE">Due only</option><option value="PAID">Paid only</option></select></label>
+          <label class="inline" for="statusFilter"><select id="statusFilter"><option value="">Paid and due</option><option value="DUE">Due only</option><option value="PAID">Paid only</option><option value="OFF">Not counted</option></select></label>
           <button id="exportBtn">Export CSV</button>
           <button id="addEntryBtn" class="primary">Add entry</button>
         </div>
@@ -109,6 +109,7 @@
     <label class="field"><span>In naira</span><input id="eNgn" class="mono" type="text" readonly tabindex="-1"></label>
     <label class="field"><span>Priority</span><select id="ePrio"><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
     <label class="field"><span>Status</span><select id="eStatus"><option value="PAID">Paid</option><option value="DUE">Due, not paid yet</option></select></label>
+    <label class="field full check"><input id="eCounted" type="checkbox" checked><span>Count this bill in the totals <span class="sub">(untick for one-offs, refunds, duplicates or tests: it stays in the ledger but is left out of every total)</span></span></label>
     <label class="field full"><span>Payment link</span><input id="eLink" type="url" maxlength="500" placeholder="https://… the page where this bill is paid or viewed"></label>
     <label class="field full"><span>Note</span><input id="eNote" type="text" maxlength="300" placeholder="Invoice number, overage, anything worth remembering"></label>
     <div class="field full shots" id="eShots">

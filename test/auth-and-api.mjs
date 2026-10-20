@@ -90,6 +90,9 @@ await t('priority, status and payment links are checked', async () => {
   assert.equal(parseEntry({ ...base, status: 'due' }).status, 'DUE');
   assert.ok(parseEntry({ ...base, priority: 'URGENT' }).error);
   assert.ok(parseEntry({ ...base, status: 'MAYBE' }).error);
+  assert.equal(parseEntry(base).counted, 1, 'bills count in totals by default');
+  assert.equal(parseEntry({ ...base, counted: false }).counted, 0);
+  assert.equal(parseEntry({ ...base, counted: true }).counted, 1);
   assert.equal(paymentUrl(''), '');
   assert.equal(paymentUrl(' https://vercel.com/account/billing '), 'https://vercel.com/account/billing');
   for (const bad of ['javascript:alert(1)', 'http://pay.example.com', 'data:text/html,hi', 'https://user:pw@pay.example.com', 'vercel.com/billing', 'https://' + 'a'.repeat(600)]) {

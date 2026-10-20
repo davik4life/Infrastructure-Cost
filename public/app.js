@@ -57,7 +57,7 @@
   // Links are checked as https:// on the server; this is a second guard before they become an href.
   const safeLink = (u) => (/^https:\/\//i.test(u || '') ? u : '');
 
-  function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+  function toast(msg) { document.querySelectorAll('.toast').forEach((x) => x.remove()); const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 
   async function call(method, path, body, raw) {
     let res;
@@ -126,7 +126,10 @@
     $('yearSel').innerHTML = [...years].sort((a, b) => b - a).map((y) => `<option ${y === state.year ? 'selected' : ''}>${y}</option>`).join('');
     if (document.activeElement !== $('fxInput')) setMoney($('fxInput'), fx());
 
-    const yE = state.entries.filter((e) => e.period.startsWith(state.year + '-'));
+    // Every bill in the year (the ledger shows them all), and the ones that count towards totals.
+    const yAll = state.entries.filter((e) => e.period.startsWith(state.year + '-'));
+    const yE = yAll.filter((e) => e.counted !== false);
+    const left = yAll.length - yE.length;
     const total = sumKobo(yE);
     const byMonth = Array(12).fill(0);
     yE.forEach((e) => { byMonth[+e.period.slice(5, 7) - 1] += e.ngn || 0; });
@@ -138,7 +141,7 @@
     $('kTotal').textContent = ngn(total);
     $('kTotalSub').textContent = dueTotal
       ? `${ngn(total - dueTotal)} paid + ${ngn(dueTotal)} still due`
-      : plural(yE.length, 'bill', 'bills') + ' across ' + plural(recMonths, 'month', 'months');
+      : plural(yE.length, 'bill', 'bills') + ' across ' + plural(recMonths, 'month', 'months') + (left ? `, ${left} not counted` : '');
     $('kAvg').textContent = ngn(recMonths ? total / recMonths : 0);
     $('kAvgSub').textContent = recMonths ? 'over ' + plural(recMonths, 'recorded month', 'recorded months') : 'nothing recorded yet';
     $('kRun').textContent = ngn(run);
@@ -147,8 +150,9 @@
     $('kYear').textContent = ngn(run * 12);
 
     // Due to pay: every unpaid bill, any year, most urgent first.
-    const due = state.entries.filter((e) => e.status === 'DUE').sort((a, b) => prioRank(a.priority) - prioRank(b.priority) || a.period.localeCompare(b.period));
+    const due = state.entries.filter((e) => e.status === 'DUE' && e.counted !== false).sort((a, b) => prioRank(a.priority) - prioRank(b.priority) || a.period.localeCompare(b.period));
     $('duePanel').hidden = !due.length;
+    if (!due.length) $('dueList').innerHTML = '';
     if (due.length) {
       $('dueSub').textContent = `${plural(due.length, 'bill', 'bills')} · ${ngnExact(sumKobo(due))}${due.some((e) => !e.period.startsWith(state.year + '-')) ? ' (all years)' : ''}`;
       $('dueList').innerHTML = due.map((e) => {
@@ -172,24 +176,29 @@
     document.querySelectorAll('.cat-fill').forEach((el) => { el.style.width = el.dataset.w + '%'; });
 
     // Ledger: newest month first; inside a month, most urgent first.
-    const shown = yE.filter((e) => (!state.prio || e.priority === state.prio) && (!state.status || e.status === state.status));
+    const matchStatus = (e) => !state.status || (state.status === 'OFF' ? e.counted === false : e.status === state.status);
+    const shown = yAll.filter((e) => (!state.prio || e.priority === state.prio) && matchStatus(e));
+    const shownCounted = shown.filter((e) => e.counted !== false);
+    const shownLeft = shown.filter((e) => e.counted === false);
     const sorted = [...shown].sort((a, b) => b.period.localeCompare(a.period) || prioRank(a.priority) - prioRank(b.priority) || (svcById(a.serviceId)?.name || '').localeCompare(svcById(b.serviceId)?.name || ''));
     const filtered = state.prio || state.status;
-    $('ledgerSub').textContent = yE.length ? `${state.year}: ${plural(yE.length, 'entry', 'entries')}${filtered ? `, ${shown.length} shown` : ''}` : '';
+    $('ledgerSub').textContent = yAll.length ? `${state.year}: ${plural(yAll.length, 'entry', 'entries')}${filtered ? `, ${shown.length} shown` : ''}` : '';
     const shownByMonth = {};
-    shown.forEach((e) => { shownByMonth[e.period] = Math.round(((shownByMonth[e.period] || 0) + e.ngn) * 100) / 100; });
+    shownCounted.forEach((e) => { shownByMonth[e.period] = Math.round(((shownByMonth[e.period] || 0) + e.ngn) * 100) / 100; });
     let html = '', cur = '';
     for (const e of sorted) {
-      if (e.period !== cur) { cur = e.period; html += `<tr class="month-row"><td colspan="6">${monthLabel(cur)}</td><td class="num">${ngnExact(shownByMonth[cur])}</td><td colspan="2"></td></tr>`; }
+      if (e.period !== cur) { cur = e.period; html += `<tr class="month-row"><td colspan="6">${monthLabel(cur)}</td><td class="num">${ngnExact(shownByMonth[cur] || 0)}</td><td colspan="2"></td></tr>`; }
       const s = svcById(e.serviceId);
-      html += `<tr><td>${esc(s?.name || 'Removed service')}<div class="sub">${esc(s?.category || '')}</div></td><td>${prioPill(e.priority)}</td><td><span class="st-${esc(e.status)}">${e.status === 'DUE' ? 'Due' : 'Paid'}</span>${e.paidOn ? `<div class="sub">${esc(e.paidOn)}</div>` : ''}</td><td class="sub">${esc(e.note)}</td><td class="num">${money(e.amount, e.currency)}</td><td class="num sub">${e.currency === 'USD' ? ngnExact(e.fxRate) : '–'}</td><td class="num">${ngnExact(e.ngn)}</td><td>${filesCell('entry', e, e.paymentUrl, `${s?.name || 'Bill'}, ${monthLabel(e.period)}`)}</td><td class="nowrap"><button class="ghost" data-edit-entry="${esc(e.id)}">Edit</button><button class="ghost" data-del-entry="${esc(e.id)}">Delete</button></td></tr>`;
+      const off = e.counted === false;
+      html += `<tr class="${off ? 'uncounted' : ''}"><td>${esc(s?.name || 'Removed service')}<div class="sub">${esc(s?.category || '')}</div></td><td>${prioPill(e.priority)}</td><td><span class="st-${esc(e.status)}">${e.status === 'DUE' ? 'Due' : 'Paid'}</span>${e.paidOn ? `<div class="sub">${esc(e.paidOn)}</div>` : ''}${off ? '<div><span class="pill off">Not counted</span></div>' : ''}</td><td class="sub">${esc(e.note)}</td><td class="num">${money(e.amount, e.currency)}</td><td class="num sub">${e.currency === 'USD' ? ngnExact(e.fxRate) : '–'}</td><td class="num">${ngnExact(e.ngn)}</td><td>${filesCell('entry', e, e.paymentUrl, `${s?.name || 'Bill'}, ${monthLabel(e.period)}`)}</td><td class="nowrap"><button class="ghost" data-count="${esc(e.id)}" title="${off ? 'Add this bill back into the totals' : 'Keep this bill in the ledger but leave it out of the totals'}">${off ? 'Count it' : "Don't count"}</button><button class="ghost" data-edit-entry="${esc(e.id)}">Edit</button><button class="ghost" data-del-entry="${esc(e.id)}">Delete</button></td></tr>`;
     }
-    const emptyMsg = !state.ready ? 'Loading records…' : filtered && yE.length ? 'No bills match these filters.' : `No bills recorded for ${state.year} yet. "Record a month" fills in every active service at once.`;
+    const emptyMsg = !state.ready ? 'Loading records…' : filtered && yAll.length ? 'No bills match these filters.' : `No bills recorded for ${state.year} yet. "Record a month" fills in every active service at once.`;
     $('ledgerBody').innerHTML = html || `<tr><td colspan="9" class="empty">${emptyMsg}</td></tr>`;
-    const shownTotal = sumKobo(shown), shownDue = sumKobo(shown.filter((e) => e.status === 'DUE'));
-    const usd = shown.filter((e) => e.currency === 'USD').length;
-    $('ledgerFoot').innerHTML = shown.length ? `<tr class="total-row"><td colspan="6">Total, ${plural(shown.length, 'bill', 'bills')}${filtered ? ' shown' : ` in ${state.year}`}${shownDue ? `<div class="sub">${ngnExact(shownTotal - shownDue)} paid + ${ngnExact(shownDue)} due</div>` : ''}</td><td class="num">${ngnExact(shownTotal)}</td><td colspan="2"></td></tr>
-      <tr><td colspan="9" class="sub how">How it adds up: the total is the "In naira" column added together, paid and due bills both. ${usd ? `Dollar bills are converted at the rate saved on each bill (the Rate column), not today's rate, so a dollar amount times the default rate at the top won't match.` : ''}</td></tr>` : '';
+    const shownTotal = sumKobo(shownCounted), shownDue = sumKobo(shownCounted.filter((e) => e.status === 'DUE'));
+    const usd = shownCounted.filter((e) => e.currency === 'USD').length;
+    const leftNote = shownLeft.length ? `<div class="sub">${plural(shownLeft.length, 'bill', 'bills')} not counted (${ngnExact(sumKobo(shownLeft))}) left out</div>` : '';
+    $('ledgerFoot').innerHTML = shown.length ? `<tr class="total-row"><td colspan="6">Total, ${plural(shownCounted.length, 'bill', 'bills')}${filtered ? ' shown' : ` in ${state.year}`}${shownDue ? `<div class="sub">${ngnExact(shownTotal - shownDue)} paid + ${ngnExact(shownDue)} due</div>` : ''}${leftNote}</td><td class="num">${ngnExact(shownTotal)}</td><td colspan="2"></td></tr>
+      <tr><td colspan="9" class="sub how">How it adds up: the total is the "In naira" column added together, paid and due bills both${shownLeft.length ? ', except bills marked "Not counted"' : ''}. ${usd ? `Dollar bills are converted at the rate saved on each bill (the Rate column), not today's rate, so a dollar amount times the default rate at the top won't match.` : ''}</td></tr>` : '';
 
     const svcs = [...state.services].sort((a, b) => (a.status === b.status ? 0 : a.status === 'ACTIVE' ? -1 : 1) || prioRank(a.priority) - prioRank(b.priority) || CATS.indexOf(a.category) - CATS.indexOf(b.category) || a.name.localeCompare(b.name));
     $('svcBody').innerHTML = svcs.length ? svcs.map((s) => {
@@ -320,11 +329,12 @@
     $('ePrio').value = e?.priority || s?.priority || 'MEDIUM';
     $('eStatus').value = e?.status || preset?.status || 'PAID';
     $('eLink').value = e ? e.paymentUrl || '' : s?.paymentUrl || '';
+    $('eCounted').checked = e ? e.counted !== false : true;
     updNgn(); drawThumbs('e'); $('entryDlg').showModal();
   }
   $('entryForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const body = { serviceId: $('eSvc').value, period: $('eMonth').value, paidOn: $('ePaid').value, amount: numOf($('eAmt')), currency: $('eCur').value, fxRate: numOf($('eFx')) || fx(), note: $('eNote').value, priority: $('ePrio').value, status: $('eStatus').value, paymentUrl: $('eLink').value };
+    const body = { serviceId: $('eSvc').value, period: $('eMonth').value, paidOn: $('ePaid').value, amount: numOf($('eAmt')), currency: $('eCur').value, fxRate: numOf($('eFx')) || fx(), note: $('eNote').value, priority: $('ePrio').value, status: $('eStatus').value, paymentUrl: $('eLink').value, counted: $('eCounted').checked };
     let id = editingEntry?.id;
     try {
       if (editingEntry) await call('PUT', '/api/entries/' + encodeURIComponent(id), body);
@@ -380,6 +390,15 @@
     } catch (e) { showErr('recErr', e.message); }
   });
 
+  async function toggleCounted(id) {
+    const e = state.entries.find((x) => x.id === id);
+    if (!e) return;
+    const next = e.counted === false;
+    try {
+      await call('PUT', '/api/entries/' + encodeURIComponent(id), { ...e, counted: next });
+      toast(next ? 'Bill counted in totals again' : 'Bill left out of totals'); load();
+    } catch (err) { toast(err.message); }
+  }
   async function markPaid(id) {
     const e = state.entries.find((x) => x.id === id);
     if (!e) return;
@@ -407,6 +426,7 @@
     if (b.dataset.unpend) { const [pre, i] = b.dataset.unpend.split(':'); pending[pre].splice(+i, 1); drawThumbs(pre); return; }
     if (b.dataset.unsave) { const [pre, id] = b.dataset.unsave.split(':'); removed[pre].push(id); drawThumbs(pre); return; }
     if (b.dataset.markPaid) return markPaid(b.dataset.markPaid);
+    if (b.dataset.count) return toggleCounted(b.dataset.count);
     if (b.dataset.editEntry) return openEntry(state.entries.find((e) => e.id === b.dataset.editEntry));
     if (b.dataset.editSvc) return openSvc(svcById(b.dataset.editSvc));
     const del = b.dataset.delEntry ? ['entries', b.dataset.delEntry] : b.dataset.delSvc ? ['services', b.dataset.delSvc] : null;
@@ -435,10 +455,10 @@
   });
 
   $('exportBtn').addEventListener('click', () => {
-    const rows = [['Month', 'Service', 'Category', 'Priority', 'Status', 'Paid on', 'Amount', 'Currency', 'NGN per USD', 'Amount (NGN)', 'Note', 'Payment link', 'Screenshots', 'Recorded by']];
+    const rows = [['Month', 'Service', 'Category', 'Priority', 'Status', 'Paid on', 'Amount', 'Currency', 'NGN per USD', 'Amount (NGN)', 'Note', 'Payment link', 'Screenshots', 'Counted in totals', 'Recorded by']];
     state.entries.filter((e) => e.period.startsWith(state.year + '-')).sort((a, b) => a.period.localeCompare(b.period)).forEach((e) => {
       const s = svcById(e.serviceId);
-      rows.push([e.period, s?.name || '', s?.category || '', PRIO_LABEL[e.priority] || e.priority, e.status === 'DUE' ? 'Due' : 'Paid', e.paidOn, e.amount, e.currency, e.currency === 'USD' ? e.fxRate : '', e.ngn, e.note, e.paymentUrl, filesOf('entry', e.id).length, e.createdBy]);
+      rows.push([e.period, s?.name || '', s?.category || '', PRIO_LABEL[e.priority] || e.priority, e.status === 'DUE' ? 'Due' : 'Paid', e.paidOn, e.amount, e.currency, e.currency === 'USD' ? e.fxRate : '', e.ngn, e.note, e.paymentUrl, filesOf('entry', e.id).length, e.counted === false ? 'No' : 'Yes', e.createdBy]);
     });
     // Leading =, +, - or @ would run as a formula in Excel; prefix those with a quote.
     const cell = (c) => { c = String(c ?? ''); if (/^[=+\-@]/.test(c) && isNaN(Number(c))) c = "'" + c; return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; };

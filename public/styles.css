@@ -148,3 +148,12 @@ tfoot td.how{font-size:12px;white-space:normal}
 .money-field .cur{display:flex;align-items:center;padding:0 9px;border:1px solid var(--line);border-right:0;border-radius:6px 0 0 6px;background:var(--bg);color:var(--muted);font-family:var(--f-mono)}
 .money-field input{border-radius:0 6px 6px 0;flex:1;min-width:0;width:100%}
 label.inline .money-field input{width:110px;flex:none}
+/* bills left out of totals */
+tr.uncounted td{color:var(--muted)}
+tr.uncounted td.num{text-decoration:line-through;text-decoration-color:var(--muted)}
+tr.uncounted .prio{opacity:.6}
+.field.check{flex-direction:row;align-items:flex-start;gap:8px}
+.field.check input{width:auto;margin-top:3px;accent-color:var(--accent)}
+.field.check span{font-size:13px;color:var(--ink);font-weight:500}
+.field.check span.sub{color:var(--muted);font-weight:400}
+button.ghost[data-count]:hover{color:var(--accent)}

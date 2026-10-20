@@ -229,8 +229,8 @@ async function api(request, env, url, email) {
       for (const e of parsed) {
         const id = crypto.randomUUID();
         newIds.push(id);
-        stmts.push(env.DB.prepare('INSERT INTO entries (id, service_id, period, amount_minor, currency, fx_x100, ngn_kobo, paid_on, note, created_by, priority, payment_url, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-          .bind(id, e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, email, e.priority, e.paymentUrl, e.status));
+        stmts.push(env.DB.prepare('INSERT INTO entries (id, service_id, period, amount_minor, currency, fx_x100, ngn_kobo, paid_on, note, created_by, priority, payment_url, status, counted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, email, e.priority, e.paymentUrl, e.status, e.counted));
       }
       stmts.push(audit(env, email, 'ENTRIES_CREATED', parsed[0].period, `${parsed.length} bill(s), ${parsed.reduce((a, e) => a + e.ngnKobo, 0) / 100} NGN`));
       await env.DB.batch(stmts);
@@ -250,9 +250,9 @@ async function api(request, env, url, email) {
       const svc = await env.DB.prepare('SELECT id FROM services WHERE id = ?').bind(e.serviceId).first();
       if (!svc) return json({ error: 'That service no longer exists. Reload the page.' }, 400);
       await env.DB.batch([
-        env.DB.prepare("UPDATE entries SET service_id=?, period=?, amount_minor=?, currency=?, fx_x100=?, ngn_kobo=?, paid_on=?, note=?, priority=?, payment_url=?, status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
-          .bind(e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, e.priority, e.paymentUrl, e.status, id),
-        audit(env, email, 'ENTRY_UPDATED', id, `${e.period}, ${e.ngnKobo / 100} NGN`),
+        env.DB.prepare("UPDATE entries SET service_id=?, period=?, amount_minor=?, currency=?, fx_x100=?, ngn_kobo=?, paid_on=?, note=?, priority=?, payment_url=?, status=?, counted=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
+          .bind(e.serviceId, e.period, e.amountMinor, e.currency, e.fx, e.ngnKobo, e.paidOn, e.note, e.priority, e.paymentUrl, e.status, e.counted, id),
+        audit(env, email, 'ENTRY_UPDATED', id, `${e.period}, ${e.ngnKobo / 100} NGN${e.counted ? '' : ', not counted in totals'}`),
       ]);
       return json({ ok: true });
     }
@@ -281,7 +281,7 @@ async function loadState(env, email) {
     entries: entries.results.map((e) => ({
       id: e.id, serviceId: e.service_id, period: e.period, amount: e.amount_minor / 100, currency: e.currency,
       fxRate: e.fx_x100 / 100, ngn: e.ngn_kobo / 100, paidOn: e.paid_on || '', note: e.note, createdBy: e.created_by,
-      priority: e.priority, paymentUrl: e.payment_url, status: e.status,
+      priority: e.priority, paymentUrl: e.payment_url, status: e.status, counted: e.counted !== 0,
     })),
   };
 }
@@ -451,5 +451,7 @@ export function parseEntry(b) {
   if (link === null) return { error: 'The payment link must be a full web address starting with https://' };
   const status = String(b.status || 'PAID').toUpperCase();
   if (!['PAID', 'DUE'].includes(status)) return { error: 'Choose paid or due.' };
-  return { serviceId, period, amountMinor, currency, fx, ngnKobo, paidOn: date(b.paidOn), note: text(b.note, 300), priority: prio, paymentUrl: link, status };
+  // Counted in totals unless explicitly switched off.
+  const counted = b.counted === false || b.counted === 0 || b.counted === 'false' ? 0 : 1;
+  return { serviceId, period, amountMinor, currency, fx, ngnKobo, paidOn: date(b.paidOn), note: text(b.note, 300), priority: prio, paymentUrl: link, status, counted };
 }

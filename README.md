@@ -127,6 +127,9 @@ npm run db:migrate
 npm run deploy
 ```
 
+**Upgrading to the "count in totals" switch** (migration `0003`): `npm run db:migrate`, then
+`npm run deploy`. Every existing bill stays counted.
+
 Bills you recorded before this update are marked **Paid**, and every service gets a starting
 priority (Critical: Vercel, Neon, Cloudflare DNS, the domain, Paystack. High: R2, Resend, Upstash,
 Shipbubble. Medium: Sentry, GitHub, OpenAI. Low: this app). Change any of them in the app.
@@ -150,6 +153,11 @@ Shipbubble. Medium: Sentry, GitHub, OpenAI. Low: this app). Change any of them i
   screenshots", or paste straight from the clipboard while the form is open. PNG, JPEG, WebP or
   GIF, up to 5 MB each and 10 per item. They upload when you save. Deleting a bill or service
   deletes its screenshots too.
+- **Counted or not**: a bill can be left out of the totals (a one-off, a refund, a duplicate, a
+  test) while staying in the ledger. Use **Don't count** on its row, or untick "Count this bill in
+  the totals" in its form. It then shows greyed out and crossed through, marked *Not counted*, and
+  is left out of every total, the monthly average, the chart, the categories and Due to pay.
+  **Count it** puts it back. The ledger's status filter has a *Not counted* option to find them.
 - **Export CSV**: downloads the selected year for your accountant, with priority, status and links.
 - Services with recorded bills can't be deleted. Mark them **Cancelled** so past totals stay right.
 
