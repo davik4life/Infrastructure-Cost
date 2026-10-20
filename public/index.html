@@ -21,7 +21,7 @@
     </div>
     <div class="controls">
       <label class="inline" for="yearSel">Year <select id="yearSel"></select></label>
-      <label class="inline" for="fxInput">₦ per $1 <input id="fxInput" class="mono" type="number" min="1" step="0.01"></label>
+      <label class="inline" for="fxInput">₦ per $1 <span class="money-field"><span class="cur">₦</span><input id="fxInput" class="mono money" type="text" inputmode="decimal" autocomplete="off"></span></label>
       <button id="recordBtn" class="primary">Record a month</button>
     </div>
   </header>
@@ -72,6 +72,7 @@
       <div class="tablewrap"><table>
         <thead><tr><th>Service</th><th>Priority</th><th>Status</th><th>Note</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">In naira</th><th>Files &amp; link</th><th></th></tr></thead>
         <tbody id="ledgerBody"></tbody>
+        <tfoot id="ledgerFoot"></tfoot>
       </table></div>
     </div>
 
@@ -102,9 +103,9 @@
     <label class="field full"><span>Service</span><select id="eSvc" required></select></label>
     <label class="field"><span>Month</span><input id="eMonth" type="month" required></label>
     <label class="field"><span>Paid on (optional)</span><input id="ePaid" type="date"></label>
-    <label class="field"><span>Amount</span><input id="eAmt" class="mono" type="number" step="0.01" min="0" required></label>
+    <label class="field"><span>Amount</span><span class="money-field"><span class="cur" id="eAmtSym">$</span><input id="eAmt" class="mono money" type="text" inputmode="decimal" autocomplete="off" required></span></label>
     <label class="field"><span>Currency</span><select id="eCur"><option>USD</option><option>NGN</option></select></label>
-    <label class="field"><span>₦ per $1 on the bill</span><input id="eFx" class="mono" type="number" step="0.01" min="1"></label>
+    <label class="field"><span>₦ per $1 on the bill</span><span class="money-field"><span class="cur">₦</span><input id="eFx" class="mono money" type="text" inputmode="decimal" autocomplete="off"></span></label>
     <label class="field"><span>In naira</span><input id="eNgn" class="mono" type="text" readonly tabindex="-1"></label>
     <label class="field"><span>Priority</span><select id="ePrio"><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
     <label class="field"><span>Status</span><select id="eStatus"><option value="PAID">Paid</option><option value="DUE">Due, not paid yet</option></select></label>
@@ -128,7 +129,7 @@
     <label class="field full"><span>Used for</span><input id="sUse" maxlength="300"></label>
     <label class="field"><span>Current plan</span><input id="sPlan" maxlength="120"></label>
     <label class="field"><span>Billing</span><select id="sBill"><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option><option value="USAGE">Usage-based</option><option value="FREE">Free</option></select></label>
-    <label class="field"><span>Planned cost per billing period</span><input id="sPrice" class="mono" type="number" step="0.01" min="0"></label>
+    <label class="field"><span>Planned cost per billing period</span><span class="money-field"><span class="cur" id="sPriceSym">$</span><input id="sPrice" class="mono money" type="text" inputmode="decimal" autocomplete="off"></span></label>
     <label class="field"><span>Currency</span><select id="sCur"><option>USD</option><option>NGN</option></select></label>
     <label class="field"><span>Renews on (yearly)</span><input id="sRenew" type="date"></label>
     <label class="field"><span>Status</span><select id="sStatus"><option value="ACTIVE">Active</option><option value="CANCELLED">Cancelled</option></select></label>
@@ -151,7 +152,7 @@
   <p class="sub flush">Pre-filled with each active service's planned cost. Change any amount to match the real bill. Rows left blank are skipped, and services already recorded for that month are marked.</p>
   <div class="form-grid">
     <label class="field"><span>Month</span><input id="rMonth" type="month" required></label>
-    <label class="field"><span>₦ per $1 for this month</span><input id="rFx" class="mono" type="number" step="0.01" min="1"></label>
+    <label class="field"><span>₦ per $1 for this month</span><span class="money-field"><span class="cur">₦</span><input id="rFx" class="mono money" type="text" inputmode="decimal" autocomplete="off"></span></label>
     <label class="field"><span>These bills are</span><select id="rStatus"><option value="PAID">Paid</option><option value="DUE">Due, not paid yet</option></select></label>
   </div>
   <div class="rec-list" id="recList"></div>
@@ -159,9 +160,18 @@
   <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save month</button></div>
 </form></dialog>
 
-<dialog id="viewDlg"><div class="dlg">
-  <div class="panel-head"><h2 id="viewTitle">Screenshots</h2><button type="button" data-close>Close</button></div>
-  <div class="viewer" id="viewer"></div>
-</div></dialog>
+<dialog id="lightbox" class="lightbox" aria-labelledby="lbTitle">
+  <div class="lb-bar">
+    <div class="lb-text"><strong id="lbTitle"></strong><span class="sub" id="lbCaption"></span></div>
+    <span class="sub mono" id="lbCount"></span>
+    <a id="lbOpen" class="btn" target="_blank" rel="noopener">Full size</a>
+    <button type="button" class="primary" data-close>Close</button>
+  </div>
+  <div class="lb-stage">
+    <button type="button" class="lb-nav" id="lbPrev" aria-label="Previous screenshot">‹</button>
+    <img id="lbImg" alt="">
+    <button type="button" class="lb-nav" id="lbNext" aria-label="Next screenshot">›</button>
+  </div>
+</dialog>
 </body>
 </html>

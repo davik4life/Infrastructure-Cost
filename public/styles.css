@@ -123,3 +123,28 @@ a.linkish{font-weight:400}
 .viewer img{max-width:100%;border:1px solid var(--line);border-radius:6px}
 #viewDlg{width:min(960px,calc(100vw - 32px))}
 @media (max-width:560px){.due-item{grid-template-columns:auto minmax(0,1fr)}.due-item .num,.due-actions{grid-column:2}.due-actions{justify-content:flex-start}}
+/* thumbnails + lightbox */
+.minis{display:flex;gap:4px;align-items:center}
+.mini{width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--bg);cursor:zoom-in;flex:none}
+.mini img{width:100%;height:100%;object-fit:cover;display:block}
+.mini:hover{border-color:var(--accent)}
+.mini.more{cursor:pointer;font-size:12px;font-weight:600;color:var(--muted)}
+.files{gap:10px}
+.thumb img{cursor:zoom-in}
+dialog.lightbox{width:min(1100px,calc(100vw - 24px));max-width:none;height:calc(100vh - 48px);max-height:none;padding:0;background:var(--surface);display:none;flex-direction:column}
+dialog.lightbox[open]{display:flex}
+dialog.lightbox::backdrop{background:rgba(5,8,6,.8)}
+.lb-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.lb-text{display:flex;flex-direction:column;min-width:0;flex:1}
+.lb-text .sub{overflow-wrap:anywhere}
+.lb-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:var(--bg)}
+.lb-stage img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;min-width:0}
+.lb-nav{font-size:28px;line-height:1;padding:8px 14px;flex:none}
+tfoot .total-row td{font-weight:600;border-top:2px solid var(--ink);background:var(--surface)}
+tfoot td.how{font-size:12px;white-space:normal}
+@media (max-width:560px){.lb-nav{padding:6px 8px;font-size:22px}}
+/* money boxes with a currency sign in front */
+.money-field{display:flex;align-items:stretch;min-width:0}
+.money-field .cur{display:flex;align-items:center;padding:0 9px;border:1px solid var(--line);border-right:0;border-radius:6px 0 0 6px;background:var(--bg);color:var(--muted);font-family:var(--f-mono)}
+.money-field input{border-radius:0 6px 6px 0;flex:1;min-width:0;width:100%}
+label.inline .money-field input{width:110px;flex:none}

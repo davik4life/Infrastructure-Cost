@@ -32,10 +32,6 @@
 		{
 			"binding": "UPLOADS",
 			"bucket_name": "zyria-costs-uploads"
-		},
-		{
-			"bucket_name": "zyria-costs-uploads",
-			"binding": "zyria_costs_uploads"
 		}
 	],
 	"vars": {
