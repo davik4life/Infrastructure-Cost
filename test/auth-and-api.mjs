@@ -95,6 +95,12 @@ await t('priority, status and payment links are checked', async () => {
   assert.equal(parseEntry(base).counted, 1, 'bills count in totals by default');
   assert.equal(parseEntry({ ...base, counted: false }).counted, 0);
   assert.equal(parseEntry({ ...base, counted: true }).counted, 1);
+  assert.equal(parseEntry(base).chargedKobo, null, 'no actual-paid amount means it matched the fee');
+  assert.equal(parseEntry({ ...base, charged: '' }).chargedKobo, null);
+  assert.equal(parseEntry({ ...base, amount: 30000, charged: '30550' }).chargedKobo, 3055000);
+  assert.equal(parseEntry({ ...base, amount: 30000, charged: 30550.5 }).chargedKobo, 3055050);
+  assert.ok(parseEntry({ ...base, charged: '-5' }).error);
+  assert.ok(parseEntry({ ...base, charged: 'abc' }).error);
   assert.equal(paymentUrl(''), '');
   assert.equal(paymentUrl(' https://vercel.com/account/billing '), 'https://vercel.com/account/billing');
   for (const bad of ['javascript:alert(1)', 'http://pay.example.com', 'data:text/html,hi', 'https://user:pw@pay.example.com', 'vercel.com/billing', 'https://' + 'a'.repeat(600)]) {

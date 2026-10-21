@@ -31,6 +31,7 @@
 
   <section class="kpis" aria-label="Summary">
     <div class="kpi"><span class="eyebrow" id="kTotalLbl">Total costs</span><span class="v" id="kTotal">₦0</span><span class="s" id="kTotalSub">–</span></div>
+    <div class="kpi"><span class="eyebrow" id="kMiscLbl">Miscellaneous</span><span class="v" id="kMisc">₦0</span><span class="s" id="kMiscSub">–</span></div>
     <div class="kpi"><span class="eyebrow">Average per recorded month</span><span class="v" id="kAvg">₦0</span><span class="s" id="kAvgSub">–</span></div>
     <div class="kpi"><span class="eyebrow">Planned monthly run-rate</span><span class="v" id="kRun">₦0</span><span class="s" id="kRunSub">from active services</span></div>
     <div class="kpi"><span class="eyebrow">Planned yearly</span><span class="v" id="kYear">₦0</span><span class="s" id="kYearSub">run-rate × 12</span></div>
@@ -45,6 +46,7 @@
     <section class="panel">
       <div class="panel-head"><h2>Spend by month</h2><span class="sub" id="chartSub"></span></div>
       <svg id="chart" viewBox="0 0 640 230" role="img" aria-label="Monthly spend chart" class="chart"></svg>
+      <div class="legend" id="chartLegend" hidden><span><i class="sw sw-fee"></i>Service fees</span><span><i class="sw sw-misc"></i>Miscellaneous</span></div>
     </section>
     <section class="panel">
       <div class="panel-head"><h2>By category</h2><span class="sub" id="catSub"></span></div>
@@ -70,7 +72,7 @@
         </div>
       </div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Service</th><th>Priority</th><th>Status</th><th>Note</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">In naira</th><th>Files &amp; link</th><th></th></tr></thead>
+        <thead><tr><th>Service</th><th>Priority</th><th>Status</th><th>Note</th><th class="num">Amount</th><th class="num">Fee in naira</th><th class="num">Actually paid</th><th>Files &amp; link</th><th></th></tr></thead>
         <tbody id="ledgerBody"></tbody>
         <tfoot id="ledgerFoot"></tfoot>
       </table></div>
@@ -82,7 +84,7 @@
         <button id="addSvcBtn" class="primary">Add service</button>
       </div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Service</th><th>Priority</th><th>Used for</th><th>Plan</th><th>Billing</th><th class="num">Planned</th><th class="num">≈ ₦ / month</th><th>Next step up</th><th>Files &amp; link</th><th></th></tr></thead>
+        <thead><tr><th>Service</th><th>Priority</th><th>Used for</th><th>Plan</th><th>Billing</th><th class="num">Planned</th><th class="num">≈ ₦ / month</th><th class="num" id="svcMiscHead">Misc.</th><th>Next step up</th><th>Files &amp; link</th><th></th></tr></thead>
         <tbody id="svcBody"></tbody>
       </table></div>
     </div>
@@ -119,7 +121,9 @@
     <label class="field"><span>Amount</span><span class="money-field"><span class="cur" id="eAmtSym">$</span><input id="eAmt" class="mono money" type="text" inputmode="decimal" autocomplete="off" required></span></label>
     <label class="field"><span>Currency</span><select id="eCur"><option>USD</option><option>NGN</option></select></label>
     <label class="field"><span>₦ per $1 on the bill</span><span class="money-field"><span class="cur">₦</span><input id="eFx" class="mono money" type="text" inputmode="decimal" autocomplete="off"></span></label>
-    <label class="field"><span>In naira</span><input id="eNgn" class="mono" type="text" readonly tabindex="-1"></label>
+    <label class="field"><span>Fee in naira</span><input id="eNgn" class="mono" type="text" readonly tabindex="-1"></label>
+    <label class="field"><span>Actually paid (optional)</span><span class="money-field"><span class="cur">₦</span><input id="eCharged" class="mono money" type="text" inputmode="decimal" autocomplete="off" placeholder="same as fee"></span></label>
+    <p class="field sub flush" id="eMisc" aria-live="polite"></p>
     <label class="field"><span>Priority</span><select id="ePrio"><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></label>
     <label class="field"><span>Status</span><select id="eStatus"><option value="PAID">Paid</option><option value="DUE">Due, not paid yet</option></select></label>
     <label class="field full check"><input id="eCounted" type="checkbox" checked><span>Count this bill in the totals <span class="sub">(untick for one-offs, refunds, duplicates or tests: it stays in the ledger but is left out of every total)</span></span></label>

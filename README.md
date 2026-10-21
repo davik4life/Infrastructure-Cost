@@ -127,6 +127,9 @@ npm run db:migrate
 npm run deploy
 ```
 
+**Upgrading to miscellaneous charges** (migration `0005`): `npm run db:migrate`, then
+`npm run deploy`. Existing bills have no "Actually paid" amount, so their misc is ₦0.
+
 **Upgrading to the yearly "spread monthly" switch** (migration `0004`): `npm run db:migrate`, then
 `npm run deploy`. Every yearly service keeps being spread monthly until you switch it.
 
@@ -156,6 +159,15 @@ Shipbubble. Medium: Sentry, GitHub, OpenAI. Low: this app). Change any of them i
   screenshots", or paste straight from the clipboard while the form is open. PNG, JPEG, WebP or
   GIF, up to 5 MB each and 10 per item. They upload when you save. Deleting a bill or service
   deletes its screenshots too.
+- **Miscellaneous (paid vs. fee)**: when what actually left the account differs from the service
+  fee (bank charges, VAT, card exchange spread, a delivery top-up), enter it in the bill's
+  **Actually paid** box, in naira. Example: Shipbubble fee ₦30,000, actually paid ₦30,550, so
+  **+₦550 misc**. Leave it blank when you paid exactly the fee. The difference shows on the bill,
+  on each month's subtotal, in the ledger total ("fees + misc"), per service on the Services tab
+  ("Misc." column for the year), next to each category, as its own **Miscellaneous** line in
+  the category breakdown, as an orange slice on the monthly chart, and in the **Miscellaneous**
+  card at the top. Totals use what was actually paid. Paying less than the fee shows as a
+  negative (green) misc.
 - **Yearly payments, monthly or not**: a yearly service (like the domain) is normally spread over 12
   months in "Planned monthly run-rate" (₦15,600 a year shows as ₦1,300 a month). For a
   once-a-year payment, use **Don't spread** under its "≈ ₦ / month" figure on the Services tab, or

@@ -16,7 +16,14 @@
   // Ledger rows and their totals show kobo too, so adding up the column gives exactly the total shown.
   const ngnExactFmt = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const ngnExact = (v) => ngnExactFmt.format(Math.round((v || 0) * 100) / 100).replace('NGN', '₦');
-  const sumKobo = (list) => list.reduce((a, e) => a + Math.round((e.ngn || 0) * 100), 0) / 100;
+  const sumKobo = (list, f = (e) => e.ngn) => list.reduce((a, e) => a + Math.round((f(e) || 0) * 100), 0) / 100;
+  // Fee = the bill in naira. Paid = what actually left the account (the fee, unless "Actually paid" says otherwise).
+  // Misc = paid minus fee: bank charges, VAT, card FX spread, top-ups. Can be negative (a discount or credit).
+  const hasCharged = (e) => e.charged !== null && e.charged !== undefined;
+  const paidOf = (e) => (hasCharged(e) ? e.charged : e.ngn);
+  const miscOf = (e) => (hasCharged(e) ? Math.round((e.charged - e.ngn) * 100) / 100 : 0);
+  const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + ngnExact(Math.abs(v));
+  const miscTag = (v) => (v ? `<div class="misc ${v < 0 ? 'credit' : ''}">${signed(v)} misc</div>` : '');
   // Bill amounts: dollars and naira both to 2 decimal places with thousands commas ($1,234.50, ₦15,000.00).
   const money = (v, c) => (c === 'USD' ? usdFmt.format(v || 0) : ngnExact(v));
   const sym = (c) => (c === 'USD' ? '$' : '₦');
@@ -175,13 +182,22 @@
     const yAll = state.entries.filter((e) => e.period.startsWith(state.year + '-'));
     const yE = yAll.filter((e) => e.counted !== false);
     const left = yAll.length - yE.length;
-    const total = sumKobo(yE);
-    const byMonth = Array(12).fill(0);
-    yE.forEach((e) => { byMonth[+e.period.slice(5, 7) - 1] += e.ngn || 0; });
+    const total = sumKobo(yE, paidOf);
+    const miscTotal = sumKobo(yE, miscOf);
+    const feeTotal = sumKobo(yE);
+    const byMonth = Array(12).fill(0), miscByMonth = Array(12).fill(0);
+    yE.forEach((e) => { const i = +e.period.slice(5, 7) - 1; byMonth[i] += paidOf(e) || 0; miscByMonth[i] += miscOf(e); });
     const recMonths = new Set(yE.map((e) => e.period)).size;
     const run = state.services.reduce((a, s) => a + monthlyEquiv(s), 0);
     const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-    const dueTotal = sumKobo(yE.filter((e) => e.status === 'DUE'));
+    const dueTotal = sumKobo(yE.filter((e) => e.status === 'DUE'), paidOf);
+    const miscBills = yE.filter((e) => miscOf(e) !== 0);
+    $('kMiscLbl').textContent = 'Miscellaneous in ' + state.year;
+    $('kMisc').textContent = (miscTotal < 0 ? '−' : '') + ngn(Math.abs(miscTotal));
+    $('kMisc').classList.toggle('misc-v', miscTotal > 0);
+    $('kMiscSub').textContent = miscBills.length
+      ? `${plural(miscBills.length, 'bill', 'bills')} paid more or less than the fee · fees ${ngn(feeTotal)}`
+      : 'every bill matched its fee';
     $('kTotalLbl').textContent = 'Total costs in ' + state.year;
     $('kTotal').textContent = ngn(total);
     $('kTotalSub').textContent = dueTotal
@@ -212,15 +228,18 @@
       }).join('');
     }
 
-    drawChart(byMonth);
+    drawChart(byMonth, miscByMonth);
 
-    const cats = {};
-    yE.forEach((e) => { const c = svcById(e.serviceId)?.category || 'Other'; cats[c] = (cats[c] || 0) + (e.ngn || 0); });
+    // Each category shows its service fees and, under it, the extra paid on top; Miscellaneous sums those extras.
+    const cats = {}, catMisc = {};
+    yE.forEach((e) => { const c = svcById(e.serviceId)?.category || 'Other'; cats[c] = (cats[c] || 0) + (e.ngn || 0); catMisc[c] = (catMisc[c] || 0) + miscOf(e); });
     const cl = Object.entries(cats).sort((a, b) => b[1] - a[1]);
-    const cmax = cl[0]?.[1] || 1;
-    $('catSub').textContent = state.year;
+    const cmax = Math.max(cl[0]?.[1] || 0, Math.abs(miscTotal)) || 1;
+    const pct = (v) => (total ? Math.round((v / total) * 100) : 0);
+    $('catSub').textContent = `${state.year} · fees + misc = ${ngn(total)}`;
     $('catList').innerHTML = cl.length
-      ? cl.map(([c, v]) => `<li class="cat-row"><span>${esc(c)}</span><span class="num">${ngn(v)} <span class="sub">${total ? Math.round((v / total) * 100) : 0}%</span></span><div class="cat-track"><div class="cat-fill" data-w="${Math.max(2, (v / cmax) * 100)}"></div></div></li>`).join('')
+      ? cl.map(([c, v]) => { const m = Math.round((catMisc[c] || 0) * 100) / 100; return `<li class="cat-row"><span>${esc(c)}${m ? ` <span class="misc ${m < 0 ? 'credit' : ''}">${signed(m)} misc</span>` : ''}</span><span class="num">${ngn(v)} <span class="sub">${pct(v)}%</span></span><div class="cat-track"><div class="cat-fill" data-w="${Math.max(2, (v / cmax) * 100)}"></div></div></li>`; }).join('')
+        + (miscTotal ? `<li class="cat-row misc-row"><span>Miscellaneous <span class="sub">(paid ${miscTotal > 0 ? 'above' : 'below'} the fees)</span></span><span class="num">${(miscTotal < 0 ? '−' : '') + ngn(Math.abs(miscTotal))} <span class="sub">${pct(Math.abs(miscTotal))}%</span></span><div class="cat-track"><div class="cat-fill misc-fill" data-w="${Math.max(2, (Math.abs(miscTotal) / cmax) * 100)}"></div></div></li>` : '')
       : `<li class="sub">No spend recorded for ${state.year}. Use "Record a month" to add the first bills.</li>`;
     document.querySelectorAll('.cat-fill').forEach((el) => { el.style.width = el.dataset.w + '%'; });
 
@@ -232,32 +251,37 @@
     const sorted = [...shown].sort((a, b) => b.period.localeCompare(a.period) || prioRank(a.priority) - prioRank(b.priority) || (svcById(a.serviceId)?.name || '').localeCompare(svcById(b.serviceId)?.name || ''));
     const filtered = state.prio || state.status;
     $('ledgerSub').textContent = yAll.length ? `${state.year}: ${plural(yAll.length, 'entry', 'entries')}${filtered ? `, ${shown.length} shown` : ''}` : '';
-    const shownByMonth = {};
-    shownCounted.forEach((e) => { shownByMonth[e.period] = Math.round(((shownByMonth[e.period] || 0) + e.ngn) * 100) / 100; });
+    const shownByMonth = {}, paidByMonth = {}, miscByPeriod = {};
+    const add = (o, k, v) => { o[k] = Math.round(((o[k] || 0) + v) * 100) / 100; };
+    shownCounted.forEach((e) => { add(shownByMonth, e.period, e.ngn); add(paidByMonth, e.period, paidOf(e)); add(miscByPeriod, e.period, miscOf(e)); });
     let html = '', cur = '';
     for (const e of sorted) {
-      if (e.period !== cur) { cur = e.period; html += `<tr class="month-row"><td colspan="6">${monthLabel(cur)}</td><td class="num">${ngnExact(shownByMonth[cur] || 0)}</td><td colspan="2"></td></tr>`; }
+      if (e.period !== cur) { cur = e.period; html += `<tr class="month-row"><td colspan="5">${monthLabel(cur)}</td><td class="num">${ngnExact(shownByMonth[cur] || 0)}</td><td class="num">${ngnExact(paidByMonth[cur] || 0)}${miscTag(miscByPeriod[cur] || 0)}</td><td colspan="2"></td></tr>`; }
       const s = svcById(e.serviceId);
       const off = e.counted === false;
-      html += `<tr class="${off ? 'uncounted' : ''}"><td>${esc(s?.name || 'Removed service')}<div class="sub">${esc(s?.category || '')}</div></td><td>${prioPill(e.priority)}</td><td><span class="st-${esc(e.status)}">${e.status === 'DUE' ? 'Due' : 'Paid'}</span>${e.paidOn ? `<div class="sub">${esc(e.paidOn)}</div>` : ''}${off ? '<div><span class="pill off">Not counted</span></div>' : ''}</td><td class="sub">${esc(e.note)}</td><td class="num">${money(e.amount, e.currency)}</td><td class="num sub">${e.currency === 'USD' ? ngnExact(e.fxRate) : '–'}</td><td class="num">${ngnExact(e.ngn)}</td><td>${filesCell('entry', e, e.paymentUrl, `${s?.name || 'Bill'}, ${monthLabel(e.period)}`)}</td><td class="nowrap"><button class="ghost" data-count="${esc(e.id)}" title="${off ? 'Add this bill back into the totals' : 'Keep this bill in the ledger but leave it out of the totals'}">${off ? 'Count it' : "Don't count"}</button><button class="ghost" data-edit-entry="${esc(e.id)}">Edit</button><button class="ghost" data-del-entry="${esc(e.id)}">Delete</button></td></tr>`;
+      html += `<tr class="${off ? 'uncounted' : ''}"><td>${esc(s?.name || 'Removed service')}<div class="sub">${esc(s?.category || '')}</div></td><td>${prioPill(e.priority)}</td><td><span class="st-${esc(e.status)}">${e.status === 'DUE' ? 'Due' : 'Paid'}</span>${e.paidOn ? `<div class="sub">${esc(e.paidOn)}</div>` : ''}${off ? '<div><span class="pill off">Not counted</span></div>' : ''}</td><td class="sub">${esc(e.note)}</td><td class="num">${money(e.amount, e.currency)}${e.currency === 'USD' ? `<div class="sub">at ${ngnExact(e.fxRate)}</div>` : ''}</td><td class="num">${ngnExact(e.ngn)}</td><td class="num">${hasCharged(e) ? ngnExact(e.charged) + miscTag(miscOf(e)) : e.status === 'DUE' ? '<span class="sub">–</span>' : `<span class="sub">${ngnExact(e.ngn)}</span>`}</td><td>${filesCell('entry', e, e.paymentUrl, `${s?.name || 'Bill'}, ${monthLabel(e.period)}`)}</td><td class="nowrap"><button class="ghost" data-count="${esc(e.id)}" title="${off ? 'Add this bill back into the totals' : 'Keep this bill in the ledger but leave it out of the totals'}">${off ? 'Count it' : "Don't count"}</button><button class="ghost" data-edit-entry="${esc(e.id)}">Edit</button><button class="ghost" data-del-entry="${esc(e.id)}">Delete</button></td></tr>`;
     }
     const emptyMsg = !state.ready ? 'Loading records…' : filtered && yAll.length ? 'No bills match these filters.' : `No bills recorded for ${state.year} yet. "Record a month" fills in every active service at once.`;
     $('ledgerBody').innerHTML = html || `<tr><td colspan="9" class="empty">${emptyMsg}</td></tr>`;
-    const shownTotal = sumKobo(shownCounted), shownDue = sumKobo(shownCounted.filter((e) => e.status === 'DUE'));
+    const shownTotal = sumKobo(shownCounted, paidOf), shownDue = sumKobo(shownCounted.filter((e) => e.status === 'DUE'), paidOf);
+    const shownFees = sumKobo(shownCounted), shownMisc = sumKobo(shownCounted, miscOf);
     const usd = shownCounted.filter((e) => e.currency === 'USD').length;
-    const leftNote = shownLeft.length ? `<div class="sub">${plural(shownLeft.length, 'bill', 'bills')} not counted (${ngnExact(sumKobo(shownLeft))}) left out</div>` : '';
-    $('ledgerFoot').innerHTML = shown.length ? `<tr class="total-row"><td colspan="6">Total, ${plural(shownCounted.length, 'bill', 'bills')}${filtered ? ' shown' : ` in ${state.year}`}${shownDue ? `<div class="sub">${ngnExact(shownTotal - shownDue)} paid + ${ngnExact(shownDue)} due</div>` : ''}${leftNote}</td><td class="num">${ngnExact(shownTotal)}</td><td colspan="2"></td></tr>
-      <tr><td colspan="9" class="sub how">How it adds up: the total is the "In naira" column added together, paid and due bills both${shownLeft.length ? ', except bills marked "Not counted"' : ''}. ${usd ? `Dollar bills are converted at the rate saved on each bill (the Rate column), not today's rate, so a dollar amount times the default rate at the top won't match.` : ''}</td></tr>` : '';
+    const leftNote = shownLeft.length ? `<div class="sub">${plural(shownLeft.length, 'bill', 'bills')} not counted (${ngnExact(sumKobo(shownLeft, paidOf))}) left out</div>` : '';
+    $('ledgerFoot').innerHTML = shown.length ? `<tr class="total-row"><td colspan="5">Total, ${plural(shownCounted.length, 'bill', 'bills')}${filtered ? ' shown' : ` in ${state.year}`}${shownDue ? `<div class="sub">${ngnExact(shownTotal - shownDue)} paid + ${ngnExact(shownDue)} due</div>` : ''}${leftNote}</td><td class="num">${ngnExact(shownFees)}<div class="sub">fees</div></td><td class="num">${ngnExact(shownTotal)}${miscTag(shownMisc)}</td><td colspan="2"></td></tr>
+      <tr><td colspan="9" class="sub how">How it adds up: "Fee" is each bill's service fee in naira. "Actually paid" is what left the account, where you've entered it (otherwise the fee); the difference is shown as misc (bank charges, VAT, card exchange spread and so on). The total is the "Actually paid" column added up, paid and due bills both${shownLeft.length ? ', except bills marked "Not counted"' : ''}: ${ngnExact(shownFees)} in fees ${shownMisc < 0 ? '−' : '+'} ${ngnExact(Math.abs(shownMisc))} misc. ${usd ? `Dollar bills are converted at the rate saved on each bill (shown under the dollar amount), not today's rate, so a dollar amount times the default rate at the top won't match.` : ''}</td></tr>` : '';
 
     const svcs = [...state.services].sort((a, b) => (a.status === b.status ? 0 : a.status === 'ACTIVE' ? -1 : 1) || prioRank(a.priority) - prioRank(b.priority) || CATS.indexOf(a.category) - CATS.indexOf(b.category) || a.name.localeCompare(b.name));
     $('svcBody').innerHTML = svcs.length ? svcs.map((s) => {
       const cls = s.status !== 'ACTIVE' ? 'off' : s.billing === 'USAGE' ? 'usage' : '';
-      return `<tr><td><strong>${esc(s.name)}</strong><div class="sub">${esc(s.category)}</div></td><td>${prioPill(s.priority)}</td><td>${clamp(`${esc(s.usedFor)}${s.notes ? `<div class="sub">${esc(s.notes)}</div>` : ''}`, `use:${s.id}`)}</td><td>${esc(s.plan)}</td><td><span class="pill ${cls}">${s.status !== 'ACTIVE' ? 'Cancelled' : BILL_LABEL[s.billing]}</span>${s.renewsOn ? `<div class="sub">renews ${esc(s.renewsOn)}</div>` : ''}</td><td class="num">${s.billing === 'FREE' || !s.price ? '–' : money(s.price, s.currency)}</td><td class="num">${notSpread(s) ? '–<div class="sub">once a year</div>' : ngn(monthlyEquiv(s))}${s.billing === 'YEARLY' && s.status === 'ACTIVE' ? `<div><button class="linkish" data-spread="${esc(s.id)}">${notSpread(s) ? 'Spread monthly' : "Don't spread"}</button></div>` : ''}</td><td class="sub">${clamp(esc(s.nextTier), `next:${s.id}`)}</td><td>${filesCell('service', s, s.paymentUrl, s.name)}</td><td class="nowrap"><button class="ghost" data-edit-svc="${esc(s.id)}">Edit</button><button class="ghost" data-del-svc="${esc(s.id)}">Delete</button></td></tr>`;
-    }).join('') : `<tr><td colspan="10" class="empty">${state.ready ? 'No services yet. Add the first one.' : 'Loading services…'}</td></tr>`;
+      const sb = yE.filter((e) => e.serviceId === s.id);
+      const sm = sumKobo(sb, miscOf), sn = sb.filter((e) => miscOf(e) !== 0).length;
+      return `<tr><td><strong>${esc(s.name)}</strong><div class="sub">${esc(s.category)}</div></td><td>${prioPill(s.priority)}</td><td>${clamp(`${esc(s.usedFor)}${s.notes ? `<div class="sub">${esc(s.notes)}</div>` : ''}`, `use:${s.id}`)}</td><td>${esc(s.plan)}</td><td><span class="pill ${cls}">${s.status !== 'ACTIVE' ? 'Cancelled' : BILL_LABEL[s.billing]}</span>${s.renewsOn ? `<div class="sub">renews ${esc(s.renewsOn)}</div>` : ''}</td><td class="num">${s.billing === 'FREE' || !s.price ? '–' : money(s.price, s.currency)}</td><td class="num">${notSpread(s) ? '–<div class="sub">once a year</div>' : ngn(monthlyEquiv(s))}${s.billing === 'YEARLY' && s.status === 'ACTIVE' ? `<div><button class="linkish" data-spread="${esc(s.id)}">${notSpread(s) ? 'Spread monthly' : "Don't spread"}</button></div>` : ''}</td><td class="num">${sm ? `<span class="misc ${sm < 0 ? 'credit' : ''}">${signed(sm)}</span><div class="sub">${plural(sn, 'bill', 'bills')}</div>` : '<span class="sub">–</span>'}</td><td class="sub">${clamp(esc(s.nextTier), `next:${s.id}`)}</td><td>${filesCell('service', s, s.paymentUrl, s.name)}</td><td class="nowrap"><button class="ghost" data-edit-svc="${esc(s.id)}">Edit</button><button class="ghost" data-del-svc="${esc(s.id)}">Delete</button></td></tr>`;
+    }).join('') : `<tr><td colspan="11" class="empty">${state.ready ? 'No services yet. Add the first one.' : 'Loading services…'}</td></tr>`;
+    $('svcMiscHead').textContent = `Misc. ${state.year}`;
     requestAnimationFrame(markClamps);
   }
 
-  function drawChart(byMonth) {
+  function drawChart(byMonth, miscByMonth = []) {
     const W = 640, H = 230, L = 58, R = 8, T = 12, B = 26, ch = H - T - B, cw = W - L - R;
     const max = Math.max(...byMonth, 0);
     const step = niceStep(max / 4 || 1);
@@ -269,12 +293,15 @@
     byMonth.forEach((v, i) => {
       const h = top ? (v / top) * ch : 0, x = L + i * bw + bw * 0.18;
       const future = state.year > nowY || (state.year === nowY && i > nowM);
-      s += `<rect x="${x}" y="${T + ch - h}" width="${bw * 0.64}" height="${Math.max(h, 0)}" rx="2" fill="var(--bar)"><title>${MONTHS[i]} ${state.year}: ${ngn(v)}</title></rect>`;
+      const m = Math.max(0, miscByMonth[i] || 0), mh = top ? (Math.min(m, v) / top) * ch : 0;
+      const tip = `${MONTHS[i]} ${state.year}: ${ngn(v)}${miscByMonth[i] ? ` (${(miscByMonth[i] < 0 ? '−' : '+') + ngn(Math.abs(miscByMonth[i]))} misc)` : ''}`;
+      s += `<g><title>${tip}</title><rect x="${x}" y="${T + ch - h + mh}" width="${bw * 0.64}" height="${Math.max(h - mh, 0)}" rx="2" fill="var(--bar)"/>${mh > 0.5 ? `<rect x="${x}" y="${T + ch - h}" width="${bw * 0.64}" height="${mh}" rx="2" fill="var(--warn)"/>` : ''}</g>`;
       if (!v && !future) s += `<rect x="${x}" y="${T + ch - 2}" width="${bw * 0.64}" height="2" fill="var(--bar-dim)"/>`;
       s += `<text x="${L + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle"${future ? ' opacity=".5"' : ''}>${MONTHS[i]}</text>`;
     });
     $('chart').innerHTML = s;
     $('chartSub').textContent = state.year + ' · naira';
+    $('chartLegend').hidden = !miscByMonth.some((m) => m > 0);
   }
   function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); const n = x / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
   function short(v) { if (v >= 1e6) return '₦' + (v / 1e6).toFixed(v % 1e6 ? 1 : 0) + 'm'; if (v >= 1e3) return '₦' + (v / 1e3).toFixed(v % 1e3 ? 1 : 0) + 'k'; return '₦' + Math.round(v); }
@@ -360,8 +387,14 @@
   $('sCat').innerHTML = CATS.map((c) => `<option>${c}</option>`).join('');
   let editingEntry = null, editingSvc = null;
   const svcOptions = (sel) => [...state.services].sort((a, b) => a.name.localeCompare(b.name)).map((s) => `<option value="${esc(s.id)}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}${s.status !== 'ACTIVE' ? ' (cancelled)' : ''}</option>`).join('');
-  function updNgn() { $('eNgn').value = ngnExact(toNgn(numOf($('eAmt')), $('eCur').value, numOf($('eFx')))); $('eFx').disabled = $('eCur').value !== 'USD'; $('eAmtSym').textContent = sym($('eCur').value); }
-  ['eAmt', 'eCur', 'eFx'].forEach((id) => $(id).addEventListener('input', updNgn));
+  function updNgn() {
+    const fee = toNgn(numOf($('eAmt')), $('eCur').value, numOf($('eFx')));
+    const paid = numOf($('eCharged'));
+    const m = paid === '' ? 0 : Math.round((Number(paid) - fee) * 100) / 100;
+    $('eMisc').textContent = paid === '' ? 'Leave blank if you paid exactly the fee.' : m ? `${signed(m)} miscellaneous (${m > 0 ? 'paid above' : 'paid below'} the fee)` : 'Matches the fee: no miscellaneous.';
+    $('eMisc').classList.toggle('misc', m > 0); $('eMisc').classList.toggle('credit', m < 0);
+    $('eNgn').value = ngnExact(fee); $('eFx').disabled = $('eCur').value !== 'USD'; $('eAmtSym').textContent = sym($('eCur').value); }
+  ['eAmt', 'eCur', 'eFx', 'eCharged'].forEach((id) => $(id).addEventListener('input', updNgn));
   $('sCur').addEventListener('change', () => { $('sPriceSym').textContent = sym($('sCur').value); syncSpread(); });
   // The "spread over 12 months" choice only applies to yearly services.
   function syncSpread() {
@@ -389,11 +422,12 @@
     $('eStatus').value = e?.status || preset?.status || 'PAID';
     $('eLink').value = e ? e.paymentUrl || '' : s?.paymentUrl || '';
     $('eCounted').checked = e ? e.counted !== false : true;
+    setMoney($('eCharged'), e && hasCharged(e) ? e.charged : '');
     updNgn(); drawThumbs('e'); $('entryDlg').showModal();
   }
   $('entryForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const body = { serviceId: $('eSvc').value, period: $('eMonth').value, paidOn: $('ePaid').value, amount: numOf($('eAmt')), currency: $('eCur').value, fxRate: numOf($('eFx')) || fx(), note: $('eNote').value, priority: $('ePrio').value, status: $('eStatus').value, paymentUrl: $('eLink').value, counted: $('eCounted').checked };
+    const body = { serviceId: $('eSvc').value, period: $('eMonth').value, paidOn: $('ePaid').value, amount: numOf($('eAmt')), currency: $('eCur').value, fxRate: numOf($('eFx')) || fx(), note: $('eNote').value, priority: $('ePrio').value, status: $('eStatus').value, paymentUrl: $('eLink').value, counted: $('eCounted').checked, charged: numOf($('eCharged')) };
     let id = editingEntry?.id;
     try {
       if (editingEntry) await call('PUT', '/api/entries/' + encodeURIComponent(id), body);
@@ -533,10 +567,10 @@
   });
 
   $('exportBtn').addEventListener('click', () => {
-    const rows = [['Month', 'Service', 'Category', 'Priority', 'Status', 'Paid on', 'Amount', 'Currency', 'NGN per USD', 'Amount (NGN)', 'Note', 'Payment link', 'Screenshots', 'Counted in totals', 'Recorded by']];
+    const rows = [['Month', 'Service', 'Category', 'Priority', 'Status', 'Paid on', 'Amount', 'Currency', 'NGN per USD', 'Fee (NGN)', 'Actually paid (NGN)', 'Miscellaneous (NGN)', 'Note', 'Payment link', 'Screenshots', 'Counted in totals', 'Recorded by']];
     state.entries.filter((e) => e.period.startsWith(state.year + '-')).sort((a, b) => a.period.localeCompare(b.period)).forEach((e) => {
       const s = svcById(e.serviceId);
-      rows.push([e.period, s?.name || '', s?.category || '', PRIO_LABEL[e.priority] || e.priority, e.status === 'DUE' ? 'Due' : 'Paid', e.paidOn, e.amount, e.currency, e.currency === 'USD' ? e.fxRate : '', e.ngn, e.note, e.paymentUrl, filesOf('entry', e.id).length, e.counted === false ? 'No' : 'Yes', e.createdBy]);
+      rows.push([e.period, s?.name || '', s?.category || '', PRIO_LABEL[e.priority] || e.priority, e.status === 'DUE' ? 'Due' : 'Paid', e.paidOn, e.amount, e.currency, e.currency === 'USD' ? e.fxRate : '', e.ngn, paidOf(e), miscOf(e), e.note, e.paymentUrl, filesOf('entry', e.id).length, e.counted === false ? 'No' : 'Yes', e.createdBy]);
     });
     // Leading =, +, - or @ would run as a formula in Excel; prefix those with a quote.
     const cell = (c) => { c = String(c ?? ''); if (/^[=+\-@]/.test(c) && isNaN(Number(c))) c = "'" + c; return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; };
