@@ -11,6 +11,6 @@
     "test": "node test/auth-and-api.mjs"
   },
   "devDependencies": {
-    "wrangler": "4.151.2"
+    "wrangler": "4.156.0"
   }
 }
